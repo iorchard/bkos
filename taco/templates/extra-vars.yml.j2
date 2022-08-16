@@ -1,0 +1,204 @@
+taco_storage_backend: "ceph"
+taco_apps: ["openstack"]
+
+container_registry_enabled: true
+pip_repo_url: "{{ pip_repo_url }}"
+pkg_repo_url: "{{ pkg_repo_url }}"
+k8s_binary_repo_url: "{{ pkg_repo_url }}"
+ceph_repo_url: "{{ pkg_repo_url }}"
+storage_vendor_url: "{{ pkg_repo_url }}"
+
+docker_insecure: ['{{ cluster_name }}-bastion:5000']
+
+## ceph monitor
+monitor_interface: eth1
+public_network: {{ ceph_network }}
+cluster_network: {{ ceph_network }}
+
+keepalived_enabled: false
+keepalived:
+  - vip_interface: eth0
+    vip: 10.3.1.150
+
+taco_replicas: 1
+calico_mtu: 1430
+ipip_mode: Always
+
+openstack_mtu: 1450
+vgpu_types: null
+live_migration_interface: eth1
+neutron_ml2_plugin: linuxbridge
+lb_provider:
+  - "external:eth2"
+ovs_provider:
+  - name: external
+    bridge: br-ex
+    iface: eth3
+    vlan_ranges: "150:151"
+tunnel: eth3
+hypervisor_mgmt_interface: eth1
+bgp_dragent: false
+novnc_listen_iface: eth0
+
+##################
+### NetApp NFS ###
+##################
+# If taco_storage_backend is "netapp_nfs", set it below.
+
+## nfs provisioner
+nfs_provisioner:
+  nfs_server_ip: 192.168.140.19
+  nfs_share_path: /taco2_nfs_provisioner
+
+## nfs glance
+glance_store:
+  nfs_server_ip: 192.168.140.19
+  nfs_share_path: /taco2_glance
+
+## nfs backup
+backup_store:
+  nfs_server_ip: 192.168.140.19
+  nfs_share_path: /taco2_backup
+
+## netapp cinder
+netapp_nfs:
+  - name: nfs1
+    server_ip: 192.168.140.19
+    login_id: vsadmin
+    password: YWdpbEVeQDY2Cg==
+    vserver_name: svm01
+    nas_share_path: /taco2_cinder
+  - name: nfs2
+    server_ip: 192.168.140.19
+    login_id: vsadmin
+    password: YWdpbEVeQDY2Cg==
+    vserver_name: svm01
+    nas_share_path: /taco2_cinder2
+
+
+##################
+#### Unity FC ####
+##################
+# If taco_storage_backend is "unity_fc", set it below.
+
+## unity cinder
+unity_fc:
+  - name: unity-fc
+    san_ip: 192.168.120.20
+    san_login: admin
+    san_password: UGFzc3dvcmQxMjMhCg==
+    unity_io_ports: "spa_iom_1_fc0, spb_iom_1_fc0, spa_iom_1_fc1, spb_iom_1_fc1"
+    unity_storage_pool_names: p0
+
+
+####################
+#### Hitachi FC ####
+####################
+# If taco_storage_backend is "hitachi_fc", set it below.
+
+## hitachi cinder
+hitachi_fc:
+  - name: hitachi-fc
+    hitachi_storage_id: "934000611322"
+    hitachi_pool: 0
+    hitachi_rest_api_ip: 192.168.120.91
+    hitachi_rest_user: maintenance
+    hitachi_rest_password: cmFpZC1tYWludGVuYW5jZQo=
+    hitachi_target_ports: "CL1-A,CL2-A"
+    hitachi_compute_target_ports: "CL3-A,CL4-A,CL1-B,CL2-B,CL1-A,CL2-A"
+
+
+########################
+#### PureStorage FC ####
+########################
+# If taco_storage_backend is "pure_fc", set it below.
+
+## pure cinder
+pure_fc:
+  - name: pure-fc
+    san_ip: 192.168.120.22
+    pure_api_token: "8784b811-4f92-49a8-1ea7-18e9c4e36720"
+
+
+############
+### Ceph ###
+############
+# If taco_storage_backend is "ceph", set it below.
+
+{% raw %}
+rgw_ip: "{{ groups['rgws'][0] }}"
+## ceph rados-gateway
+radosgw_frontend_type: civetweb
+radosgw_civetweb_port: 7480
+rgw_create_pools:
+  "{{ rgw_zone }}.rgw.buckets.data":
+    pg_num: 16
+  "{{ rgw_zone }}.rgw.buckets.index":
+    pg_num: 16
+
+## ceph config
+ceph_conf_overrides:
+      global:
+        mon_allow_pool_delete: true
+        osd_pool_default_size: 2
+        osd_pool_default_min_size: 1
+        # for only one node.
+        #osd_crush_chooseleaf_type: 0
+
+## ceph osd
+osd_objectstore: bluestore
+lvm_volumes:
+  - data: /dev/sdb
+  - data: /dev/sdc
+  
+## ceph openstack pools
+openstack_config: true
+kube_pool:
+  name: "kube"
+  pg_num: 16
+  pgp_num: 16
+  rule_name: "replicated_rule"
+  type: 1
+  erasure_profile: ""
+  expected_num_objects: ""
+  application: "rbd"
+openstack_glance_pool:
+  name: "images"
+  pg_num: 32
+  pgp_num: 32
+  rule_name: "replicated_rule"
+  type: 1
+  erasure_profile: ""
+  expected_num_objects: ""
+openstack_cinder_pool:
+  name: "volumes"
+  pg_num: 64
+  pgp_num: 64
+  rule_name: "replicated_rule"
+  type: 1
+  erasure_profile: ""
+  expected_num_objects: ""
+openstack_cinder_backup_pool:
+  name: "backups"
+  pg_num: 8
+  pgp_num: 8
+  rule_name: "replicated_rule"
+  type: 1
+  erasure_profile: ""
+  expected_num_objects: ""
+openstack_nova_vms_pool:
+  name: "vms"
+  pg_num: 16
+  pgp_num: 16
+  rule_name: "replicated_rule"
+  type: 1
+  erasure_profile: ""
+  expected_num_objects: ""
+
+openstack_pools:
+  - "{{ kube_pool }}"
+  - "{{ openstack_glance_pool }}"
+  - "{{ openstack_cinder_pool }}"
+  - "{{ openstack_cinder_backup_pool }}"
+  - "{{ openstack_nova_vms_pool }}"
+{% endraw %}

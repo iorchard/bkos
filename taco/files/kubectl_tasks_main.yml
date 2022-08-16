@@ -1,0 +1,80 @@
+---
+- name: create kube config dir
+  file:
+    path: "{{ lookup('env','HOME') }}/.kube"
+    mode: "0700"
+    state: directory
+  become: no
+
+- name: fetch admin kubeconfig to ansible host
+  fetch:
+    src: "/root/.kube/config"
+    dest: "{{ lookup('env','HOME') }}/.kube/config"
+    flat: true
+    validate_checksum: true
+  delegate_to: "{{ groups['kube-master']|first }}"
+
+- name: Change file ownership, group and permissions
+  file:
+    path: "{{ lookup('env','HOME') }}/.kube/config"
+    owner: "{{ lookup('env','USER') }}"
+    group: "{{ lookup('env','USER') }}"
+    mode: '0600'
+
+- name: copy kubectl binary to ansible host
+  fetch:
+    src: "{{ bin_dir }}/kubectl"
+    dest: "{{ artifacts_dir }}/kubectl"
+    flat: yes
+    validate_checksum: no
+  delegate_to: "{{ groups['kube-master']|first }}"
+
+- name: copy kubectl to bin_dir
+  copy:
+    src: "{{ artifacts_dir }}/kubectl"
+    dest: "{{ bin_dir }}/kubectl"
+    mode: 0755
+
+- name: copy helm binary to ansible host
+  fetch:
+    src: "{{ bin_dir }}/helm"
+    dest: "{{ artifacts_dir }}/helm"
+    flat: yes
+    validate_checksum: no
+  become: no
+  delegate_to: "{{ groups['kube-master']|first }}"
+
+- name: copy helm to bin_dir
+  copy:
+    src: "{{ artifacts_dir }}/helm"
+    dest: "{{ bin_dir }}/helm"
+    mode: 0755
+
+- name: check whether .bashrc contains PATH
+  command: grep -Frn "export PATH=" {{ lookup('env','HOME') }}/.bashrc
+  register: checkpath
+  ignore_errors: True
+  changed_when: False
+
+- name: add PATH into bashrc
+  lineinfile:
+    dest: "{{ lookup('env','HOME') }}/.bashrc"
+    state: present
+    line: 'export PATH=$PATH:{{bin_dir}}'
+  when: not checkpath.rc == 0
+
+- name: add {{ bin_dir }} to PATH
+  lineinfile:
+    path: "{{ lookup('env','HOME') }}/.bashrc"
+    state: present
+    regexp: 'export PATH=(["]*)((?!.*?{{bin_dir}}).*?)(["]*)$'
+    line: 'export PATH=\1\2:{{bin_dir}}\3'
+    backrefs: yes
+  become: no
+  when: checkpath.rc == 0
+
+- name: source bashrc
+  become: no
+  shell: source {{ lookup('env','HOME') }}/.bashrc
+  args:
+    executable: /bin/bash

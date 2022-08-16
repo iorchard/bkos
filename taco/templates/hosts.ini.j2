@@ -1,0 +1,85 @@
+{% for d in hosts_ini %}
+{{ d['name'] }}{{'\t'}}ip={{ d['ip'] }}{% if 'bastion' in d['name'] %}{{'\t'}}ansible_connection=local{% endif +%}
+{% endfor %}
+
+# Kubernetes cluster
+[kube-master]
+{% for d in hosts_ini %}
+{% if 'controller' in d['name'] %}{{ d['name'] }}{{'\n'}}{% endif %}
+{% endfor +%}
+
+[etcd]
+{% for d in hosts_ini %}
+{% if 'controller' in d['name'] %}{{ d['name'] }}{{'\n'}}{% endif %}
+{% endfor +%}
+
+[kube-node]
+{% for d in hosts_ini %}
+{% if 'storage' not in d['name'] and 'bastion' not in d['name'] %}{{ d['name'] }}{{'\n'}}{% endif %}
+{% endfor +%}
+
+[k8s-cluster:children]
+kube-master
+kube-node
+
+# Ceph cluster
+[mons]
+{% for d in hosts_ini %}
+{% if 'storage' in d['name'] and loop.index == 1 %}{{ d['name'] }}{{'\n'}}{% endif %}
+{% endfor +%}
+
+[mgrs]
+{% for d in hosts_ini %}
+{% if 'storage' in d['name'] and loop.index == 1 %}{{ d['name'] }}{{'\n'}}{% endif %}
+{% endfor +%}
+
+[osds]
+{% for d in hosts_ini %}
+{% if 'storage' in d['name'] %}{{ d['name'] }}{{'\n'}}{% endif %}
+{% endfor +%}
+
+[rgws]
+{% for d in hosts_ini %}
+{% if 'controller' in d['name'] %}{{ d['name'] }}{{'\n'}}{% endif %}
+{% endfor +%}
+
+[clients:children]
+k8s-cluster
+admin-node
+
+[ceph:children]
+mgrs
+osds
+mons
+clients
+
+# OpenStack cluster
+[controller-node]
+{% for d in hosts_ini %}
+{% if 'controller' in d['name'] %}{{ d['name'] }}{{'\n'}}{% endif %}
+{% endfor +%}
+
+[compute-node]
+{% for d in hosts_ini %}
+{% if 'worker' in d['name'] %}{{ d['name'] }}{{'\n'}}{% endif %}
+{% endfor +%}
+
+[controller-node:vars]
+node_labels={"openstack-control-plane":"enabled", "linuxbridge":"enabled", "openvswitch":"enabled"}
+
+[compute-node:vars]
+node_labels={"openstack-compute-node":"enabled", "linuxbridge":"enabled", "openvswitch":"enabled"}
+
+# TACO cluster
+[admin-node]
+{{ cluster_name }}-bastion
+
+# Container registry
+[container-registry]
+{{ cluster_name }}-bastion
+
+[taco:children]
+admin-node
+container-registry
+ceph
+k8s-cluster

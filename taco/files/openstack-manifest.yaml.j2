@@ -1,0 +1,2006 @@
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: helm-toolkit
+data:
+  chart_name: helm-toolkit
+  release: helm-toolkit
+  namespace: helm-tookit
+  values: {}
+  source:
+    type: local
+    location: "{{ osh_infra_path }}"
+    subpath: helm-toolkit
+  dependencies: []
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: ingress
+data:
+  chart_name: ingress
+  release: ingress
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+  values:
+    deployment:
+      type: StatefulSet
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        entrypoint: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        ingress: {{ container_registry_url }}/quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.32.0
+        ingress_module_init: {{ container_registry_url }}/burrito/kolla/ubuntu-source-neutron-server:taco-train-v2.0.0
+        ingress_routed_vip: {{ container_registry_url }}/burrito/kolla/ubuntu-source-neutron-server:taco-train-v2.0.0
+        error_pages: {{ container_registry_url }}/gcr.io/google_containers/defaultbackend:1.4
+        keepalived: {{ container_registry_url }}/docker.io/osixia/keepalived:1.4.5
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+    network:
+      host_namespace: true
+    monitoring:
+      prometheus:
+        enabled: false
+        ingress_exporter:
+          scrape: false
+    pod:
+      replicas:
+        ingress: {{ taco_replicas }}
+        error_page: 1
+    endpoints:
+      ingress:
+        port:
+          http:
+            default: {{ taco_ingress_port }}
+          https:
+            default: 8443
+{% if taco_storage_backend == "ceph" %}
+    storage: ceph
+{% elif taco_storage_backend == "netapp_nfs" %}
+    storage: netapp_nfs
+{% elif (taco_storage_backend == "unity_fc") or (taco_storage_backend == "hitachi_fc") or (taco_storage_backend == "pure_fc") %}
+    storage: san
+{% endif %}
+    client_body_volume:
+      size: 500Gi
+      class_name: {{ storage_class_name }}
+    manifests:
+{% if (taco_storage_backend == "netapp_nfs") or (taco_storage_backend == 'ceph') %}
+      pvc_client_body: true
+{% else %}
+      pvc_client_body: false
+{% endif %}
+  source:
+    type: local
+    location: "{{ osh_infra_path }}"
+    subpath: ingress
+  dependencies:
+  - helm-toolkit
+{% if taco_storage_backend == "ceph" %}
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: ceph-provisioners
+data:
+  chart_name: ceph-provisioners
+  release: ceph-provisioners
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+  values:
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        ceph_bootstrap: {{ container_registry_url }}/docker.io/openstackhelm/ceph-daemon:latest-ubuntu_bionic
+        ceph_cephfs_provisioner: {{ container_registry_url }}/docker.io/openstackhelm/ceph-cephfs-provisioner:latest-ubuntu_bionic
+        ceph_config_helper: {{ container_registry_url }}/docker.io/openstackhelm/ceph-config-helper:latest-ubuntu_bionic
+        ceph_rbd_provisioner: {{ container_registry_url }}/docker.io/openstackhelm/ceph-rbd-provisioner:latest-ubuntu_bionic
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+    deployment:
+      ceph: false
+      client_secrets: true
+      rbd_provisioner: false
+      cephfs_provisioner: false
+    storageclass:
+      rbd:
+        provision_storage_class: false
+      cephfs:
+        provision_storage_class: false
+    conf:
+      ceph:
+        global:
+          mon_host: {{ mon_host }}
+    manifests:
+      configmap_bin: false
+      configmap_bin_common: false
+      configmap_etc: true
+      deployment_rbd_provisioner: false
+      deployment_cephfs_provisioner: false
+      job_bootstrap: false
+      job_cephfs_client_key: false
+      job_image_repo_sync: false
+      job_namespace_client_key_cleaner: false
+      job_namespace_client_key: false
+      storageclass_cephfs: false
+      storageclass_rbd: false
+      helm_tests: false
+  source:
+    type: local
+    location: "{{ osh_infra_path }}"
+    subpath: ceph-provisioners
+  dependencies:
+    - helm-toolkit
+{% elif taco_storage_backend == "netapp_nfs" %}
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: nfs-client-provisioner
+data:
+  chart_name: nfs-client-provisioner
+  release: nfs-client-provisioner
+  namespace: openstack
+  values:
+    image:
+      repository: {{ container_registry_url }}/quay.io/external_storage/nfs-client-provisioner
+      tag: v3.1.0-k8s1.11
+      pullPolicy: {{ taco_img_pull_policy }}
+    nfs:
+      server: {{ nfs_provisioner.nfs_server_ip }}
+      path: {{ nfs_provisioner.nfs_share_path }}
+    storageClass:
+      create: true
+      name: nfs
+    nodeSelector:
+      openstack-control-plane: enabled
+  source:
+    type: local
+    location: "{{ playbook_dir }}/charts/helm-charts"
+    subpath: stable/nfs-client-provisioner
+  dependencies: []
+{% endif %}
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: mariadb
+data:
+  chart_name: mariadb
+  release: mariadb
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+    pre:
+      delete:
+      - name: exporter-create-sql-user
+        type: job
+        labels:
+          application: prometheus_mysql_exporter
+          component: create-sql-user
+  values:
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        mariadb: {{ container_registry_url }}/docker.io/openstackhelm/mariadb:ubuntu_xenial-20210405
+        ingress: {{ container_registry_url }}/quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.9.0
+        error_pages: {{ container_registry_url }}/gcr.io/google_containers/defaultbackend:1.4
+        prometheus_create_mysql_user: {{ container_registry_url }}/docker.io/mariadb:10.2.31
+        prometheus_mysql_exporter: {{ container_registry_url }}/docker.io/prom/mysqld-exporter:v0.10.0
+        prometheus_mysql_exporter_helm_tests: {{ container_registry_url }}/docker.io/openstackhelm/heat:newton-ubuntu_xenial
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+        mariadb_backup: {{ container_registry_url }}/quay.io/airshipit/porthole-mysqlclient-utility:latest-ubuntu_bionic
+        ks_user: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        scripted_test: {{ container_registry_url }}/docker.io/openstackhelm/mariadb:ubuntu_xenial-20210405
+    pod:
+      replicas:
+        server: {{ taco_replicas }}
+        ingress: {{ taco_replicas }}
+    volume:
+      enabled: true
+      class_name: {{ storage_class_name }}
+      size: 30Gi
+      log:
+        class_name: {{ storage_class_name }}
+        size: 5Gi
+    endpoints:
+      oslo_db:
+        auth:
+          admin:
+            username: {{ db_root_user }}
+            password: {{ db_root_password| b64decode }}
+    monitoring:
+      prometheus:
+        enabled: false
+        mysqld_exporter:
+          scrape: false
+    conf:
+      db_acl:
+        enabled: true
+        allow_network: {{ kube_pods_subnet }}
+    manifests:
+      pod_rally_test: false
+  source:
+    type: local
+    location: "{{ osh_infra_path }}"
+    subpath: mariadb
+  test:
+    enabled: true
+    timeout: 3600
+  dependencies:
+  - helm-toolkit
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: rabbitmq
+data:
+  chart_name: rabbitmq
+  release: rabbitmq
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+  values:
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        prometheus_rabbitmq_exporter: {{ container_registry_url }}/docker.io/kbudde/rabbitmq-exporter:v0.21.0
+        prometheus_rabbitmq_exporter_helm_tests: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        rabbitmq_init: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        rabbitmq: {{ container_registry_url }}/docker.io/rabbitmq:3.10.5
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        scripted_test: {{ container_registry_url }}/docker.io/rabbitmq:3.10.5-management
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+    pod:
+      replicas:
+        server: {{ taco_replicas }}
+    volume:
+      class_name: {{ storage_class_name }}
+    monitoring:
+      prometheus:
+        enabled: false
+        rabbitmq_exporter:
+          scrape: false
+    endpoints:
+      oslo_messaging:
+        auth:
+          user:
+            username: {{ mq_root_user }}
+            password: {{ mq_root_password| b64decode }}
+    manifests:
+      pod_rally_test: false
+  source:
+    type: local
+    location: "{{ osh_infra_path }}"
+    subpath: rabbitmq
+  test:
+    enabled: true
+    timeout: 3600
+  dependencies:
+  - helm-toolkit
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: memcached
+data:
+  chart_name: memcached
+  release: memcached
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+  values:
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        memcached: {{ container_registry_url }}/docker.io/memcached:1.5.5
+        prometheus_memcached_exporter: {{ container_registry_url }}/docker.io/prom/memcached-exporter:v0.4.1
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+    pod:
+      replicas:
+        server: {{ taco_replicas }}
+    monitoring:
+      prometheus:
+        enabled: false
+        memcached_exporter:
+          scrape: false
+  source:
+    type: local
+    location: "{{ osh_infra_path }}"
+    subpath: memcached
+  dependencies:
+  - helm-toolkit
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: keystone
+data:
+  chart_name: keystone
+  release: keystone
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+    pre:
+      delete:
+      - name: keystone-bootstrap
+        type: job
+        labels:
+          application: keystone
+          component: bootstrap
+      - name: keystone-credential-setup
+        type: job
+        labels:
+          application: keystone
+          component: credential-setup
+      - name: keystone-db-init
+        type: job
+        labels:
+          application: keystone
+          component: db-init
+      - name: keystone-db-sync
+        type: job
+        labels:
+          application: keystone
+          component: db-sync
+      - name: keystone-fernet-setup
+        type: job
+        labels:
+          application: keystone
+          component: fernet-setup
+      - name: keystone-domain-manage
+        type: job
+        labels:
+          application: keystone
+          component: domain-manage
+  values:
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        bootstrap: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        test: {{ container_registry_url }}/docker.io/xrally/xrally-openstack:1.3.0
+        db_init: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        keystone_db_sync: {{ container_registry_url }}/burrito/kolla/ubuntu-source-keystone:taco-train-v2.0.0
+        db_drop: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        ks_user: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        rabbit_init: {{ container_registry_url }}/docker.io/rabbitmq:3.10.5-management
+        keystone_bootstrap: {{ container_registry_url }}/burrito/kolla/ubuntu-source-keystone:taco-train-v2.0.0
+        keystone_fernet_setup: {{ container_registry_url }}/burrito/kolla/ubuntu-source-keystone-fernet:taco-train-v2.0.0
+        keystone_fernet_rotate: {{ container_registry_url }}/burrito/kolla/ubuntu-source-keystone-fernet:taco-train-v2.0.0
+        keystone_credential_setup: {{ container_registry_url }}/burrito/kolla/ubuntu-source-keystone:taco-train-v2.0.0
+        keystone_credential_rotate: {{ container_registry_url }}/burrito/kolla/ubuntu-source-keystone:taco-train-v2.0.0
+        keystone_credential_cleanup: {{ container_registry_url }}/burrito/kolla/ubuntu-source-keystone:taco-train-v2.0.0
+        keystone_api: {{ container_registry_url }}/burrito/kolla/ubuntu-source-keystone:taco-train-v2.0.0
+        keystone_domain_manage: {{ container_registry_url }}/burrito/kolla/ubuntu-source-keystone:taco-train-v2.0.0
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+    pod:
+      security_context:
+        keystone:
+          pod:
+            runAsUser: {{ keystone_uid }}
+        credential_setup:
+          pod:
+            runAsUser: {{ keystone_uid }}
+        fernet_setup:
+          pod:
+            runAsUser: {{ keystone_uid }}
+        fernet_rotate:
+          pod:
+            runAsUser: {{ keystone_uid }}
+        domain_manage:
+          pod:
+            runAsUser: {{ keystone_uid }}
+        test:
+          pod:
+            runAsUser: {{ keystone_uid }}
+      replicas:
+        api: {{ taco_replicas }}
+    conf:
+      db_acl:
+        enabled: true
+      keystone:
+        DEFAULT:
+          debug: true
+    endpoints:
+      identity:
+        auth:
+          admin:
+            username: {{ os_root_user }}
+            password: {{ os_root_password| b64decode }}
+        port:
+          api:
+            default: {{ taco_ingress_port }}
+            public: {{ taco_ingress_port }}
+      oslo_db:
+        auth:
+          admin:
+            username: {{ db_root_user }}
+            password: {{ db_root_password| b64decode }}
+          keystone:
+            username: keystone
+            password: {{ db_keystone_password| b64decode }}
+      oslo_messaging:
+        auth:
+          admin:
+            username: {{ mq_root_user }}
+            password: {{ mq_root_password| b64decode }}
+          keystone:
+            username: keystone
+            password: {{ mq_keystone_password| b64decode }}
+        statefulset: null
+    manifests:
+      pod_rally_test: false
+  source:
+    type: local
+    location: "{{ osh_path }}"
+    subpath: keystone
+  test:
+    enabled: true
+    timeout: 3600
+  dependencies:
+  - helm-toolkit
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: glance
+data:
+  chart_name: glance
+  release: glance
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+    pre:
+      delete:
+      - name: glance-bootstrap
+        type: job
+        labels:
+          application: glance
+          component: bootstrap
+      - name: glance-storage-init
+        type: job
+        labels:
+          application: glance
+          component: storage-init
+      - name: glance-db-init
+        type: job
+        labels:
+          application: glance
+          component: db-init
+      - name: glance-db-sync
+        type: job
+        labels:
+          application: glance
+          component: db-sync
+      - name: glance-ks-endpoints
+        type: job
+        labels:
+          application: glance
+          component: ks-endpoints
+      - name: glance-ks-service
+        type: job
+        labels:
+          application: glance
+          component: ks-service
+      - name: glance-ks-user
+        type: job
+        labels:
+          application: glance
+          component: ks-user
+  values:
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        test: {{ container_registry_url }}/docker.io/xrally/xrally-openstack:1.3.0
+        glance_storage_init: {{ container_registry_url }}/docker.io/openstackhelm/ceph-config-helper:latest-ubuntu_bionic
+        glance_metadefs_load: {{ container_registry_url }}/burrito/kolla/ubuntu-source-glance-api:taco-train-v2.0.0
+        db_init: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        glance_db_sync: {{ container_registry_url }}/burrito/kolla/ubuntu-source-glance-api:taco-train-v2.0.0
+        db_drop: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        ks_user: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        ks_service: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        ks_endpoints: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        rabbit_init: {{ container_registry_url }}/docker.io/rabbitmq:3.10.5-management
+{% if (taco_storage_backend == "unity_fc") or (taco_storage_backend == "hitachi_fc") or (taco_storage_backend == "pure_fc") %}
+        glance_api: {{ container_registry_url }}/burrito/kolla/centos-source-glance-api:taco-train-dell-unity
+{% else %}
+        glance_api: {{ container_registry_url }}/burrito/kolla/ubuntu-source-glance-api:taco-train-v2.0.0
+{% endif %}
+        glance_registry: {{ container_registry_url }}/burrito/kolla/ubuntu-source-glance-registry:taco-train-v2.0.0
+        # Bootstrap image requires curl
+        bootstrap: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+    pod:
+      security_context:
+        glance:
+          pod:
+            runAsUser: {{ glance_uid }}
+          container:
+            glance_api:
+              readOnlyRootFilesystem: false
+              allowPrivilegeEscalation: true
+              privileged: true
+        clean:
+          pod:
+            runAsUser: {{ glance_uid }}
+        metadefs_load:
+          pod:
+            runAsUser: {{ glance_uid }}
+        storage_init:
+          pod:
+            runAsUser: {{ glance_uid }}
+        test:
+          pod:
+            runAsUser: {{ glance_uid }}
+      replicas:
+        api: {{ taco_replicas }}
+    network:
+      api:
+        ingress:
+          annotations:
+            nginx.ingress.kubernetes.io/proxy-body-size: 102400M
+{% if taco_storage_backend == "ceph" %}
+    storage: rbd
+{% elif taco_storage_backend == "netapp_nfs" %}
+    storage: nfs
+{% elif (taco_storage_backend == "unity_fc") or (taco_storage_backend == "hitachi_fc") or (taco_storage_backend == "pure_fc") %}
+    storage: san
+{% endif %}
+    conf:
+      db_acl:
+        enabled: true
+      glance:
+        DEFAULT:
+          debug: true
+          show_image_direct_url: true
+          show_multiple_locations: true
+{% if taco_storage_backend == "ceph" %}
+          enabled_backends: ceph_rbd:rbd
+{% elif taco_storage_backend == "netapp_nfs" %}
+          enabled_backends: netapp_nfs:file
+{% elif (taco_storage_backend == "unity_fc") or (taco_storage_backend == "hitachi_fc") or (taco_storage_backend == "pure_fc") %}
+          enabled_backends: {{ taco_storage_backend }}:cinder
+{% endif %}
+        glance_store:
+{% if taco_storage_backend == "ceph" %}
+          default_backend: ceph_rbd
+          rbd_store_replication: {{ ceph_conf_overrides.global.osd_pool_default_size }}
+          rbd_store_user: glance
+          rbd_store_pool: images
+          rbd_store_ceph_conf: /etc/ceph/ceph.conf
+{% else %}
+          default_backend: {{ taco_storage_backend }}
+{% endif %}
+{% if taco_storage_backend == "ceph" %}
+        ceph_rbd:
+          rbd_store_replication: {{ ceph_conf_overrides.global.osd_pool_default_size }}
+          rbd_store_user: glance
+          rbd_store_pool: images
+          rbd_store_ceph_conf: /etc/ceph/ceph.conf
+{% elif taco_storage_backend == "netapp_nfs" %}
+        netapp_nfs:
+          filesystem_store_datadir: /var/lib/glance/netapp_nfs
+          store_description: "Netapp NFS store"
+          filesystem_store_metadata_file: /etc/glance/filesystem_store_metadata.json
+          filesystem_store_file_perm: 666
+{% elif taco_storage_backend == "unity_fc" %}
+        unity_fc:
+          cinder_volume_type: "{{ unity_fc | json_query('[*].name')|first }}"
+          rootwrap_config: /etc/glance/rootwrap.conf
+          description: cinder store
+          cinder_catalog_info: volumev2::publicURL
+          cinder_store_auth_address: http://keystone-api.openstack.svc.cluster.local:5000/v3
+          cinder_store_user_name: admin
+          cinder_store_password: {{ os_root_password| b64decode }}
+          cinder_store_project_name: admin
+{% elif taco_storage_backend == "hitachi_fc" %}
+        hitachi_fc:
+          cinder_volume_type: "{{ hitachi_fc | json_query('[*].name')|first }}"
+          rootwrap_config: /etc/glance/rootwrap.conf
+          description: cinder store
+          cinder_catalog_info: volumev2::publicURL
+          cinder_store_auth_address: http://keystone-api.openstack.svc.cluster.local:5000/v3
+          cinder_store_user_name: admin
+          cinder_store_password: {{ os_root_password| b64decode }}
+          cinder_store_project_name: admin
+{% elif taco_storage_backend == "pure_fc" %}
+        pure_fc:
+          cinder_volume_type: "{{ pure_fc | json_query('[*].name')|first }}"
+          rootwrap_config: /etc/glance/rootwrap.conf
+          description: cinder store
+          cinder_catalog_info: volumev2::publicURL
+          cinder_store_auth_address: http://keystone-api.openstack.svc.cluster.local:5000/v3
+          cinder_store_user_name: admin
+          cinder_store_password: {{ os_root_password| b64decode }}
+          cinder_store_project_name: admin
+{% endif %}
+        keystone_authtoken:
+          service_token_roles_required: true
+{% if taco_storage_backend == "netapp_nfs" %}
+      nfs:
+        name: netapp_nfs
+        server_ip: {{ glance_store.nfs_server_ip }}
+        share_path: {{ glance_store.nfs_share_path }}
+        mount_point: /var/lib/glance/netapp_nfs
+      filesystem_store_metadata:
+        id: NetAppNFS
+        share_location: nfs://{{ glance_store.nfs_server_ip }}{{ glance_store.nfs_share_path }}
+        mountpoint: /var/lib/glance/netapp_nfs
+        type: nfs
+{% elif taco_storage_backend == "ceph" %}
+      ceph:
+        admin_keyring: {{ admin_keyring }}
+{% endif %}
+    bootstrap:
+      enabled: false
+    endpoints:
+      identity:
+        auth:
+          admin:
+            username: {{ os_root_user }}
+            password: {{ os_root_password| b64decode }}
+          glance:
+            username: glance
+            password: {{ os_glance_password| b64decode }}
+        port:
+          api:
+            default: {{ taco_ingress_port }}
+            public: {{ taco_ingress_port }}
+      image:
+        port:
+          api:
+            public: {{ taco_ingress_port }}
+      oslo_db:
+        auth:
+          admin:
+            username: {{ db_root_user }}
+            password: {{ db_root_password| b64decode }}
+          glance:
+            username: glance
+            password: {{ db_glance_password| b64decode }}
+      oslo_messaging:
+        auth:
+          admin:
+            username: {{ mq_root_user }}
+            password: {{ mq_root_password| b64decode }}
+          glance:
+            username: glance
+            password: {{ mq_glance_password| b64decode }}
+        statefulset: null
+    manifests:
+      pod_rally_test: false
+  source:
+    type: local
+    location: "{{ osh_path }}"
+    subpath: glance
+  test:
+    enabled: true
+    timeout: 3600
+  dependencies:
+  - helm-toolkit
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: placement
+data:
+  chart_name: placement
+  release: placement
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+    pre:
+      delete:
+      - name: placement-db-init
+        type: job
+        labels:
+          application: placement
+          component: db-init
+      - name: placement-db-sync
+        type: job
+        labels:
+          application: placement
+          component: db-sync
+      - name: placement-ks-endpoints
+        type: job
+        labels:
+          application: placement
+          component: ks-endpoints
+      - name: placement-ks-service
+        type: job
+        labels:
+          application: placement
+          component: ks-service
+      - name: placement-ks-user
+        type: job
+        labels:
+          application: placement
+          component: ks-user
+  values:
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        placement: {{ container_registry_url }}/burrito/kolla/ubuntu-source-placement-api:taco-train-v2.0.0
+        ks_user: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        ks_service: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        ks_endpoints: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        db_init: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        db_drop: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        db_migrate: {{ container_registry_url }}/quay.io/airshipit/porthole-mysqlclient-utility:latest-ubuntu_bionic
+        placement_db_sync: {{ container_registry_url }}/burrito/kolla/ubuntu-source-placement-api:taco-train-v2.0.0
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+    pod:
+      security_context:
+        placement:
+          pod:
+            runAsUser: {{ placement_uid }}
+      replicas:
+        api: {{ taco_replicas }}
+    conf:
+      db_acl:
+        enabled: true
+      placement:
+        keystone_authtoken:
+          service_token_roles_required: true
+        oslo_policy:
+          policy_file: /etc/placement/policy.yaml
+    endpoints:
+      identity:
+        auth:
+          admin:
+            username: {{ os_root_user }}
+            password: {{ os_root_password| b64decode }}
+          glance:
+            username: glance
+            password: {{ os_glance_password| b64decode }}
+        port:
+          api:
+            default: {{ taco_ingress_port }}
+            public: {{ taco_ingress_port }}
+      placement:
+        port:
+          api:
+            public: {{ taco_ingress_port }}
+      oslo_db:
+        auth:
+          admin:
+            username: {{ db_root_user }}
+            password: {{ db_root_password| b64decode }}
+          placement:
+            username: placement
+            password: {{ db_placement_password| b64decode }}
+          nova_api:
+            username: nova
+            password: {{ db_nova_password| b64decode }}
+      identity:
+        auth:
+          admin:
+            username: {{ os_root_user }}
+            password: {{ os_root_password| b64decode }}
+          placement:
+            username: placement
+            password: {{ os_placement_password| b64decode }}
+  source:
+    type: local
+    location: "{{ osh_path }}"
+    subpath: placement
+  test:
+    enabled: false
+    timeout: 3600
+  dependencies:
+  - helm-toolkit
+{% if neutron_ml2_plugin == "ovs" %}
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: openvswitch
+data:
+  chart_name: openvswitch
+  release: openvswitch
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+  values:
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        openvswitch_db_server: {{ container_registry_url }}/burrito/kolla/ubuntu-source-openvswitch-db-server:taco-train-v2.0.0
+        openvswitch_vswitchd: {{ container_registry_url }}/burrito/kolla/ubuntu-source-openvswitch-vswitchd:taco-train-v2.0.0
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+    pod:
+      security_context:
+        openvswitch_db_server:
+          pod:
+            runAsUser: 0
+          container:
+            server:
+              runAsUser: 0
+      user:
+        nova:
+          uid: {{ nova_uid }}
+  source:
+    type: local
+    location: "{{ osh_infra_path }}"
+    subpath: openvswitch
+  test:
+    enabled: false
+    timeout: 3600
+  dependencies:
+  - helm-toolkit
+{% endif %}
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: neutron
+data:
+  chart_name: neutron
+  release: neutron
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+    pre:
+      delete:
+      - name: neutron-db-init
+        type: job
+        labels:
+          application: neutron
+          component: db-init
+      - name: neutron-db-sync
+        type: job
+        labels:
+          application: neutron
+          component: db-sync
+      - name: neutron-ks-endpoints
+        type: job
+        labels:
+          application: neutron
+          component: ks-endpoints
+      - name: neutron-ks-service
+        type: job
+        labels:
+          application: neutron
+          component: ks-service
+      - name: neutron-ks-user
+        type: job
+        labels:
+          application: neutron
+          component: ks-user
+  values:
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        bootstrap: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        test: {{ container_registry_url }}/docker.io/xrally/xrally-openstack:1.3.0
+        purge_test: {{ container_registry_url }}/docker.io/openstackhelm/ospurge:latest
+        db_init: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        neutron_db_sync: {{ container_registry_url }}/jijisa/centos-source-neutron-server:train-oslopatch
+        db_drop: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        rabbit_init: {{ container_registry_url }}/docker.io/rabbitmq:3.10.5-management
+        ks_user: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        ks_service: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        ks_endpoints: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        neutron_server: {{ container_registry_url }}/jijisa/centos-source-neutron-server:train-oslopatch
+        neutron_rpc_server: {{ container_registry_url }}/jijisa/centos-source-neutron-server:train-oslopatch
+        neutron_dhcp: {{ container_registry_url }}/jijisa/centos-source-neutron-dhcp-agent:train-oslopatch
+        neutron_metadata: {{ container_registry_url }}/jijisa/centos-source-neutron-metadata-agent:train-oslopatch
+        neutron_l3: {{ container_registry_url }}/jijisa/centos-source-neutron-l3-agent:train-oslopatch
+        neutron_l2gw: {{ container_registry_url }}/jijisa/centos-source-neutron-server:train-oslopatch
+        neutron_openvswitch_agent: {{ container_registry_url }}/jijisa/centos-source-neutron-openvswitch-agent:train-oslopatch
+        neutron_linuxbridge_agent: {{ container_registry_url }}/jijisa/centos-source-neutron-linuxbridge-agent:train-oslopatch
+        neutron_sriov_agent: {{ container_registry_url }}/jijisa/centos-source-neutron-sriov-agent:train-oslopatch
+        neutron_sriov_agent_init: {{ container_registry_url }}/jijisa/centos-source-neutron-sriov-agent:train-oslopatch
+        neutron_bagpipe_bgp: {{ container_registry_url }}/jijisa/centos-source-neutron-bgp-dragent:train-oslopatch
+        neutron_bgp_dragent: {{ container_registry_url }}/jijisa/centos-source-neutron-bgp-dragent:train-oslopatch
+        neutron_ironic_agent: {{ container_registry_url }}/jijisa/centos-source-ironic-neutron-agent:train-oslopatch
+        neutron_netns_cleanup_cron: {{ container_registry_url }}/jijisa/centos-source-neutron-server:train-oslopatch
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+    network:
+      backend:
+{% if neutron_ml2_plugin == "linuxbridge" %}
+      - linuxbridge
+{% elif neutron_ml2_plugin == "ovs" %}
+      - openvswitch
+{% endif %}
+      share_namespaces: true
+      interface:
+        tunnel: {{ tunnel }}
+    pod:
+      security_context:
+        neutron_dhcp_agent:
+          pod:
+            runAsUser: {{ neutron_uid }}
+        neutron_l2gw_agent:
+          pod:
+            runAsUser: {{ neutron_uid }}
+        neutron_bagpipe_bgp:
+          pod:
+            runAsUser: {{ neutron_uid }}
+        neutron_l3_agent:
+          pod:
+            runAsUser: {{ neutron_uid }}
+        neutron_lb_agent:
+          pod:
+            runAsUser: {{ neutron_uid }}
+        neutron_metadata_agent:
+          pod:
+            runAsUser: {{ neutron_uid }}
+        neutron_ovs_agent:
+          pod:
+            runAsUser: {{ neutron_uid }}
+        neutron_server:
+          pod:
+            runAsUser: {{ neutron_uid }}
+        neutron_sriov_agent:
+          pod:
+            runAsUser: {{ neutron_uid }}
+        neutron_ironic_agent:
+          pod:
+            runAsUser: {{ neutron_uid }}
+        neutron_netns_cleanup_cron:
+          pod:
+            runAsUser: {{ neutron_uid }}
+        neutron_bgp_dragent:
+          pod:
+            runAsUser: {{ neutron_uid }}
+      replicas:
+        server: {{ taco_replicas }}
+    conf:
+      db_acl:
+        enabled: true
+      paste:
+        composite:neutronapi_v2_0:
+          keystone: cors http_proxy_to_wsgi request_id catch_errors authtoken keystonecontext extensions neutronapiapp_v2_0
+        app:neutronversions:
+          paste.app_factory: neutron.pecan_wsgi.app:versions_factory
+      neutron_sudoers: |
+        #This sudoers file supports rootwrap-daemon for both Kolla and LOCI Images.
+        Defaults !requiretty
+        Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/var/lib/openstack/bin:/var/lib/kolla/venv/bin"
+        neutron ALL = (root) NOPASSWD: /var/lib/kolla/venv/bin/neutron-rootwrap /etc/neutron/rootwrap.conf *, /var/lib/openstack/bin/neutron-rootwrap /etc/neutron/rootwrap.conf *, /var/lib/kolla/venv/bin/neutron-rootwrap-daemon /etc/neutron/rootwrap.conf, /var/lib/openstack/bin/neutron-rootwrap-daemon /etc/neutron/rootwrap.conf, /var/lib/kolla/venv/bin/privsep-helper /etc/neutron/rootwrap.conf *
+      neutron:
+        DEFAULT:
+          debug: True
+          core_plugin: ml2
+          global_physnet_mtu: {{ openstack_mtu }}
+          service_plugins: router
+          l3_ha_network_type: vxlan
+          dhcp_agents_per_network: {{ taco_replicas }}
+        agent:
+          root_helper: sudo /var/lib/kolla/venv/bin/neutron-rootwrap /etc/neutron/rootwrap.conf
+        quotas:
+          quota_network: -1
+          quota_subnet: -1
+          quota_port: -1
+          quota_router: -1
+          quota_floatingip: -1
+          quota_security_group: -1
+          quota_security_group_rule: -1
+        oslo_messaging_rabbit:
+          enable_cancel_on_failover: true
+{% if neutron_ml2_plugin == "linuxbridge" %}
+      auto_bridge_add: null
+{% elif neutron_ml2_plugin == "ovs" %}
+      auto_bridge_add:
+        {% for b in ovs_provider %}
+{{ b.bridge }}:{{ b.iface }}
+        {% endfor %}
+{% endif %}
+
+      plugins:
+        ml2_conf:
+          ml2:
+            extension_drivers: port_security
+            type_drivers: flat, vlan, vxlan
+            tenant_network_types: vxlan
+          ml2_type_flat:
+            flat_networks: "*"
+{% if neutron_ml2_plugin == "ovs" %}
+          ml2_type_vlan:
+            network_vlan_ranges: "{%- for b in ovs_provider %}{{ b.name }}:{{ b.vlan_ranges }},{% endfor %}"
+{% endif %}
+{% if neutron_ml2_plugin == "linuxbridge" %}
+        linuxbridge_agent:
+          linux_bridge:
+            physical_interface_mappings: "{{ lb_provider| json_query('[*]')|join(',') }}"
+            bridge_mappings: ""
+          securitygroup:
+            firewall_driver: iptables
+          vxlan:
+            l2_population: True
+            arp_responder: False
+{% elif neutron_ml2_plugin == "ovs" %}
+        openvswitch_agent:
+          ovs:
+            bridge_mappings: "{%- for b in ovs_provider %}{{ b.name }}:{{ b.bridge }},{% endfor %}"
+          securitygroup:
+            firewall_driver: openvswitch
+          agent:
+            tunnel_types: vxlan
+            l2_population: True
+            arp_responder: True
+{% endif %}
+      dhcp_agent:
+        DEFAULT:
+          force_metadata: True
+      metadata_agent:
+        DEFAULT:
+          nova_metadata_port: {{ taco_ingress_port }}
+    endpoints:
+      oslo_db:
+        auth:
+          admin:
+            username: {{ db_root_user }}
+            password: {{ db_root_password| b64decode }}
+          neutron:
+            username: neutron
+            password: {{ db_neutron_password| b64decode }}
+      oslo_messaging:
+        auth:
+          admin:
+            username: {{ mq_root_user }}
+            password: {{ mq_root_password| b64decode }}
+          neutron:
+            username: neutron
+            password: {{ mq_neutron_password| b64decode }}
+        statefulset: null
+      identity:
+        name: keystone
+        auth:
+          admin:
+            username: {{ os_root_user }}
+            password: {{ os_root_password| b64decode }}
+          neutron:
+            username: neutron
+            password: {{ os_neutron_password| b64decode }}
+          nova:
+            username: nova
+            password: {{ os_nova_password| b64decode }}
+        port:
+          api:
+            default: {{ taco_ingress_port }}
+            public: {{ taco_ingress_port }}
+      compute:
+        port:
+          api:
+            public: {{ taco_ingress_port }}
+      compute_metadata:
+        port:
+          metadata:
+            public: {{ taco_ingress_port }}
+      network:
+        port:
+          api:
+            public: {{ taco_ingress_port }}
+
+    manifests:
+{% if neutron_ml2_plugin == "linuxbridge" %}
+      daemonset_lb_agent: true
+      daemonset_ovs_agent: false
+{% elif neutron_ml2_plugin == "ovs" %}
+      daemonset_lb_agent: false
+      daemonset_ovs_agent: true
+{% endif %}
+      daemonset_sriov_agent: false
+      daemonset_metadata_agent: true
+      daemonset_bgp_dragent: {{ bgp_dragent }}
+  source:
+    type: local
+    location: "{{ osh_path }}"
+    subpath: neutron
+  test:
+    enabled: true
+    timeout: 3600
+  dependencies:
+  - helm-toolkit
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: libvirt
+data:
+  chart_name: libvirt
+  release: libvirt
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+  values:
+    release_group: null
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        #libvirt: docker.io/openstackhelm/libvirt:latest-ubuntu_bionic
+        libvirt: {{ container_registry_url }}/burrito/centos-source-nova-cloudpc-libvirt:taco-train-jbe-1.11.0.0
+        ceph_config_helper: {{ container_registry_url }}/docker.io/openstackhelm/ceph-config-helper:latest-ubuntu_bionic
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+    network:
+      backend:
+{% if neutron_ml2_plugin == "linuxbridge" %}
+      - linuxbridge
+{% elif neutron_ml2_plugin == "ovs" %}
+      - openvswitch
+{% endif %}
+    conf:
+      ceph:
+{% if taco_storage_backend == "ceph" %}
+        enabled: true
+        admin_keyring: {{ admin_keyring }}
+        cinder:
+          user: cinder
+          keyring: AQAin8tU0CFgEhAATb7sYgtWsh+S5HEbg6MrGg==
+          secret_uuid: 582393ff-9a5c-4a2e-ae0d-86ec18c36afc
+{% else %}
+        enabled: false
+{% endif %}
+      libvirt:
+        listen_addr: 0.0.0.0
+        log_level: 3
+      qemu:
+        #user: "nova"
+        #group: "kvm"
+        group: "cinder"
+        spice_tls: 1
+        spice_tls_x509_cert_dir: "/etc/pki/libvirt-spice"
+        seccomp_sandbox: 1
+        spice_listen: 0.0.0.0
+  source:
+    type: local
+    location: "{{ osh_infra_path }}"
+    subpath: libvirt
+  dependencies:
+  - helm-toolkit
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: nova
+data:
+  chart_name: nova
+  release: nova
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+    pre:
+      delete:
+      - name: nova-bootstrap
+        type: job
+        labels:
+          application: nova
+          component: bootstrap
+      - name: nova-cell-setup
+        type: job
+        labels:
+          application: nova
+          component: cell-setup
+      - name: nova-db-init
+        type: job
+        labels:
+          application: nova
+          component: db-init
+      - name: nova-db-sync
+        type: job
+        labels:
+          application: nova
+          component: db-sync
+      - name: nova-ks-endpoints
+        type: job
+        labels:
+          application: nova
+          component: ks-endpoints
+      - name: nova-ks-service
+        type: job
+        labels:
+          application: nova
+          component: ks-service
+      - name: nova-ks-user
+        type: job
+        labels:
+          application: nova
+          component: ks-user
+  values:
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        bootstrap: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        db_drop: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        db_init: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        rabbit_init: {{ container_registry_url }}/docker.io/rabbitmq:3.10.5-management
+        ks_user: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        ks_service: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        ks_endpoints: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        nova_api: {{ container_registry_url }}/jijisa/centos-source-nova-api:train-oslopatch
+        nova_cell_setup: {{ container_registry_url }}/jijisa/centos-source-nova-api:train-oslopatch
+        nova_cell_setup_init: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+{% if taco_storage_backend == "unity_fc" %}
+        nova_compute: {{ container_registry_url }}/burrito/kolla/centos-source-nova-compute:taco-train-dell-unity
+{% elif taco_storage_backend == "hitachi_fc" %}
+        nova_compute: {{ container_registry_url }}/burrito/kolla/centos-source-nova-compute:taco-train-hitachi-fc
+{% elif taco_storage_backend == "pure_fc" %}
+        nova_compute: {{ container_registry_url }}/burrito/kolla/centos-source-nova-compute:taco-train-pure-fc
+{% else %}
+        nova_compute: {{ container_registry_url }}/jijisa/centos-source-nova-compute:train-oslopatch
+{% endif %}
+        nova_compute_ironic: {{ container_registry_url }}/jijisa/centos-source-nova-compute-ironic:train-oslopatch
+        nova_compute_ssh: {{ container_registry_url }}/jijisa/centos-source-nova-ssh:train-oslopatch
+        nova_conductor: {{ container_registry_url }}/jijisa/centos-source-nova-conductor:train-oslopatch
+        nova_db_sync: {{ container_registry_url }}/jijisa/centos-source-nova-api:train-oslopatch
+        nova_novncproxy: {{ container_registry_url }}/jijisa/centos-source-nova-novncproxy:train-oslopatch
+        nova_novncproxy_assets: {{ container_registry_url }}/jijisa/centos-source-nova-novncproxy:train-oslopatch
+        nova_scheduler: {{ container_registry_url }}/jijisa/centos-source-nova-scheduler:train-oslopatch
+        # NOTE(portdirect): we simply use the ceph config helper here,
+        # as it has both oscli and jq.
+        nova_service_cleaner: {{ container_registry_url }}/docker.io/openstackhelm/ceph-config-helper:latest-ubuntu_bionic
+        nova_spiceproxy: {{ container_registry_url }}/jijisa/centos-source-nova-spicehtml5proxy:train-oslopatch
+        nova_spiceproxy_assets: {{ container_registry_url }}/jijisa/centos-source-nova-spicehtml5proxy:train-oslopatch
+        test: {{ container_registry_url }}/docker.io/xrally/xrally-openstack:1.3.0
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+        nova_wait_for_computes_init: {{ container_registry_url }}/gcr.io/google_containers/hyperkube-amd64:v1.11.6
+    bootstrap:
+      structured:
+        flavors:
+          enabled: true
+          options:
+            m1_tiny: null
+            m1_small: null
+            m1_medium: null
+            m1_large: null
+            m1_xlarge: null
+            default:
+              name: "default"
+              id: "auto"
+              ram: 8192
+              disk: 50
+              vcpus: 4
+    network:
+      backend:
+{% if neutron_ml2_plugin == "linuxbridge" %}
+      - linuxbridge
+{% elif neutron_ml2_plugin == "ovs" %}
+      - openvswitch
+{% endif %}
+      novncproxy:
+        name: nova-novncproxy
+        node_port:
+          enabled: true
+          port: 30608
+{% if (taco_storage_backend == "unity_fc") or (taco_storage_backend == "hitachi_fc") or (taco_storage_backend == "pure_fc") %}
+    storage: san
+{% endif %}
+    console:
+      console_kind: novnc
+      novnc:
+        compute:
+          vncserver_proxyclient_interface: {{ novnc_listen_iface }}
+    conf:
+      db_acl:
+        enabled: true
+      hypervisor:
+        host_interface: {{ hypervisor_mgmt_interface }}
+      libvirt:
+        live_migration_interface: {{ live_migration_interface }}
+{% if (taco_storage_backend == "unity_fc") or (taco_storage_backend == "hitachi_fc") or (taco_storage_backend == "pure_fc") %}
+        volume_use_multipath: True
+{% endif %}
+      ceph:
+{% if taco_storage_backend == "ceph" %}
+        enabled: true
+        admin_keyring: {{ admin_keyring }}
+        cinder:
+          user: cinder
+          keyring: AQAin8tU0CFgEhAATb7sYgtWsh+S5HEbg6MrGg==
+{% else %}
+        enabled: false
+{% endif %}
+      nova:
+        DEFAULT:
+          debug: true
+          config_drive_cdrom: false
+          #config_drive_format: iso9660
+          force_config_drive: false
+          ram_allocation_ratio: 0.9
+          disk_allocation_ratio: 0.9
+          cpu_allocation_ratio: 3.0
+          my_ip: null
+          weight_classes: nova.scheduler.weights.all_weighers
+          block_device_allocate_retries: 360
+          block_device_allocate_retries_interval: 10
+          vif_plugging_timeout: 1200
+          allow_resize_to_same_host: true
+          notification_format: versioned
+        devices:
+          enabled_vgpu_types: {{ vgpu_types }}
+        notifications:
+          bdms_in_notifications: true
+        vnc:
+{% if keepalived_enabled %}
+          novncproxy_base_url: http://{{ keepalived[0].vip }}:30608/vnc_auto.html
+{% else %}
+          novncproxy_base_url: http://{{ hostvars[groups['controller-node'][0]]['ansible_default_ipv4']['address'] }}:30608/vnc_auto.html
+{% endif %}
+          server_listen_interface: {{ novnc_listen_iface }} 
+        libvirt:
+          connection_uri: "qemu+tcp://127.0.0.1/system"
+          images_type: qcow2
+{% if taco_storage_backend == "ceph" %}
+          images_rbd_pool: vms
+          images_rbd_ceph_conf: /etc/ceph/ceph.conf
+          rbd_user: cinder
+          rbd_secret_uuid: 582393ff-9a5c-4a2e-ae0d-86ec18c36afc
+{% endif %}
+          virt_type: kvm
+          disk_cachemodes: "network=writeback"
+          hw_disk_discard: unmap
+        scheduler:
+          driver: filter_scheduler
+          discover_hosts_in_cells_interval: 60
+        filter_scheduler:
+          ram_weight_multiplier: 4.0
+          available_filters: nova.scheduler.filters.all_filters
+          enabled_filters: AvailabilityZoneFilter, ComputeFilter, ComputeCapabilitiesFilter, ImagePropertiesFilter, ServerGroupAntiAffinityFilter, ServerGroupAffinityFilter
+        quota:
+          instances: -1
+          cores: -1
+          ram: -1
+          metadata_items: -1
+          injected_files: -1
+          injected_file_content_bytes: -1
+          injected_file_path_length: -1
+          key_pairs: -1
+          server_groups: -1
+          server_group_members: -1
+        oslo_messaging_rabbit:
+          enable_cancel_on_failover: true
+        keystone_authtoken:
+          service_token_roles_required: true
+    endpoints:
+      oslo_db:
+        auth:
+          admin:
+            username: {{ db_root_user }}
+            password: {{ db_root_password| b64decode }}
+          nova:
+            username: nova
+            password: {{ db_nova_password| b64decode }}
+      oslo_db_api:
+        auth:
+          admin:
+            username: {{ db_root_user }}
+            password: {{ db_root_password| b64decode }}
+          nova:
+            username: nova
+            password: {{ db_nova_password| b64decode }}
+      oslo_db_cell0:
+        auth:
+          admin:
+            username: {{ db_root_user }}
+            password: {{ db_root_password| b64decode }}
+          nova:
+            username: nova
+            password: {{ db_nova_password| b64decode }}
+      oslo_db_placement:
+        auth:
+          admin:
+            username: {{ db_root_user }}
+            password: {{ db_root_password| b64decode }}
+          nova:
+            username: nova
+            password: {{ db_nova_password| b64decode }}
+          placement:
+            username: placement
+            password: {{ db_placement_password| b64decode }}
+      oslo_messaging:
+        auth:
+          admin:
+            username: {{ mq_root_user }}
+            password: {{ mq_root_password| b64decode }}
+          nova:
+            username: nova
+            password: {{ mq_nova_password| b64decode }}
+        statefulset: null
+      identity:
+        auth:
+          admin:
+            username: {{ os_root_user }}
+            password: {{ os_root_password| b64decode }}
+          nova:
+            username: nova
+            password: {{ os_nova_password| b64decode }}
+          neutron:
+            username: neutron
+            password: {{ os_neutron_password| b64decode }}
+          ironic:
+            username: ironic
+            password: {{ os_ironic_password| b64decode }}
+          placement:
+            username: placement
+            password: {{ os_placement_password| b64decode }}
+        port:
+          api:
+            default: {{ taco_ingress_port }}
+            public: {{ taco_ingress_port }}
+      image:
+        port:
+          api:
+            public: {{ taco_ingress_port }}
+      compute:
+        port:
+          api:
+            public: {{ taco_ingress_port }}
+      compute_metadata:
+        port:
+          metadata:
+            public: {{ taco_ingress_port }}
+      compute_novnc_proxy:
+        port:
+          novnc_proxy:
+            public: {{ taco_ingress_port }}
+      placement:
+        port:
+          api:
+            public: {{ taco_ingress_port }}
+      network:
+        port:
+          api:
+            public: {{ taco_ingress_port }}
+    pod:
+      security_context:
+        nova:
+          pod:
+            runAsUser: {{ nova_uid }}
+        bootstrap:
+          pod:
+            runAsUser: {{ nova_uid }}
+        cell_setup:
+          pod:
+            runAsUser: {{ nova_uid }}
+        service_cleaner:
+          pod:
+            runAsUser: {{ nova_uid }}
+      replicas:
+        api_metadata: {{ taco_replicas }}
+        osapi: {{ taco_replicas }}
+        conductor: {{ taco_replicas }}
+        scheduler: {{ taco_replicas }}
+        novncproxy: {{ taco_replicas }}
+    manifests:
+      statefulset_compute_ironic: false
+      deployment_placement: false
+      ingress_placement: false
+      job_db_init_placement: false
+      job_ks_placement_endpoints: false
+      job_ks_placement_service: false
+      job_ks_placement_user: false
+      pdb_placement: false
+      secret_keystone_placement: false
+      service_ingress_placement: false
+      service_placement: false
+      deployment_consoleauth: false
+      pod_rally_test: false
+  source:
+    type: local
+    location: "{{ osh_path }}"
+    subpath: nova
+  test:
+    enabled: true
+    timeout: 3600
+  dependencies:
+  - helm-toolkit
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: cinder
+data:
+  chart_name: cinder
+  release: cinder
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+    pre:
+      delete:
+      - name: cinder-bootstrap
+        type: job
+        labels:
+          application: cinder
+          component: bootstrap
+      - name: cinder-db-init
+        type: job
+        labels:
+          application: cinder
+          component: db-init
+      - name: cinder-db-sync
+        type: job
+        labels:
+          application: cinder
+          component: db-sync
+      - name: cinder-ks-endpoints
+        type: job
+        labels:
+          application: cinder
+          component: ks-endpoints
+      - name: cinder-ks-service
+        type: job
+        labels:
+          application: cinder
+          component: ks-service
+      - name: cinder-ks-user
+        type: job
+        labels:
+          application: cinder
+          component: ks-user
+  values:
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        test: {{ container_registry_url }}/docker.io/xrally/xrally-openstack:1.3.0
+        db_init: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        cinder_db_sync: {{ container_registry_url }}/jijisa/centos-source-cinder-api:train-oslopatch
+        db_drop: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        rabbit_init: {{ container_registry_url }}/docker.io/rabbitmq:3.10.5-management
+        ks_user: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        ks_service: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        ks_endpoints: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        cinder_api: {{ container_registry_url }}/jijisa/centos-source-cinder-api:train-oslopatch
+        bootstrap: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        cinder_scheduler: {{ container_registry_url }}/jijisa/centos-source-cinder-scheduler:train-oslopatch
+{% if taco_storage_backend == "unity_fc" %}
+        cinder_volume: {{ container_registry_url }}/burrito/kolla/centos-source-cinder-volume:taco-train-dell-unity
+{% else %}
+        cinder_volume: {{ container_registry_url }}/jijisa/centos-source-cinder-volume:train-oslopatch
+{% endif %}
+        cinder_volume_usage_audit: {{ container_registry_url }}/jijisa/centos-source-cinder-volume:train-oslopatch
+        cinder_storage_init: {{ container_registry_url }}/docker.io/openstackhelm/ceph-config-helper:latest-ubuntu_bionic
+{% if taco_storage_backend == "unity_fc" %}
+        cinder_backup: {{ container_registry_url }}/burrito/kolla/centos-source-cinder-backup:taco-train-dell-unity
+{% else %}
+        cinder_backup: {{ container_registry_url }}/jijisa/centos-source-cinder-backup:train-oslopatch
+{% endif %}
+        cinder_backup_storage_init: {{ container_registry_url }}/docker.io/openstackhelm/ceph-config-helper:latest-ubuntu_bionic
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        image_repo_sync: {{ container_registry_url }}/docker.io/docker:17.07.0
+    pod:
+      security_context:
+        volume_usage_audit:
+          pod:
+            runAsUser: {{ cinder_uid }}
+        cinder_api:
+          pod:
+            runAsUser: {{ cinder_uid }}
+        cinder_backup:
+          pod:
+            runAsUser: {{ cinder_uid }}
+          container:
+            cinder_backup:
+              readOnlyRootFilesystem: false
+              privileged: true
+        cinder_scheduler:
+          pod:
+            runAsUser: {{ cinder_uid }}
+        cinder_volume:
+          pod:
+            runAsUser: {{ cinder_uid }}
+          container:
+            cinder_volume:
+              readOnlyRootFilesystem: false
+              privileged: true
+        storage_init:
+          pod:
+            runAsUser: {{ cinder_uid }}
+        clean:
+          pod:
+            runAsUser: {{ cinder_uid }}
+        create_internal_tenant:
+          pod:
+            runAsUser: {{ cinder_uid }}
+      replicas:
+        api: {{ taco_replicas }}
+        backup: {{ taco_replicas }}
+        scheduler: {{ taco_replicas }}
+        volume: {{ taco_replicas }}
+{% if taco_storage_backend == "netapp_nfs" %}
+    storage: netapp_nfs
+    image_conversion_volume:
+      size: 500Gi
+      class_name: {{ storage_class_name }}
+{% elif (taco_storage_backend == "unity_fc") or (taco_storage_backend == "hitachi_fc") or (taco_storage_backend == "pure_fc") %}
+    storage: san
+{% endif %}
+    conf:
+      db_acl:
+        enabled: true
+      logging:
+        loggers:
+          keys:
+          - root
+          - cinder
+          - oslo_service
+        logger_oslo_service:
+          level: DEBUG
+          handlers: stderr
+          qualname: oslo_service
+        logger_cinder:
+          level: DEBUG
+{% if taco_storage_backend == "ceph" %}
+      ceph:
+        admin_keyring: {{ admin_keyring }}
+        pools:
+          backups:
+            replication: {{ ceph_conf_overrides.global.osd_pool_default_size }}
+            crush_rule: replicated_rule
+            chunk_size: 8
+            app_name: cinder-backup
+          volumes:
+            replication: {{ ceph_conf_overrides.global.osd_pool_default_size }}
+            crush_rule: replicated_rule
+            chunk_size: 8
+            app_name: cinder-volume
+{% endif %}
+      cinder:
+        DEFAULT:
+          debug: true
+          enable_v2_api: true
+          enable_v3_api: true
+          enable_force_upload: true
+{% if taco_storage_backend == "netapp_nfs" %}
+          enabled_backends: "{{ netapp_nfs | json_query('[*].name')|join(',') }}"
+          default_volume_type: "{{ netapp_nfs | json_query('[*].name')|first }}"
+          backup_driver: cinder.backup.drivers.nfs.NFSBackupDriver
+          backup_mount_point_base: /var/lib/cinder/backup
+          backup_share: {{ backup_store.nfs_server_ip }}:{{ backup_store.nfs_share_path }}
+{% elif taco_storage_backend == "ceph" %}
+          enabled_backends: "rbd1"
+          default_volume_type: "rbd1"
+          backup_driver: cinder.backup.drivers.ceph.CephBackupDriver
+          backup_ceph_user: cinder-backup
+          backup_ceph_pool: backups
+{% elif taco_storage_backend == "unity_fc" %}
+          enabled_backends: "{{ unity_fc | json_query('[*].name')|join(',') }}"
+          default_volume_type: "{{ unity | json_query('[*].name')|first }}"
+          backup_driver: cinder.backup.drivers.nfs.NFSBackupDriver
+          backup_mount_point_base: /var/lib/cinder/backup
+          backup_share: {{ backup_store.nfs_server_ip }}:{{ backup_store.nfs_share_path }}
+{% elif taco_storage_backend == "hitachi_fc" %}
+          enabled_backends: "{{ hitachi_fc | json_query('[*].name')|join(',') }}"
+          default_volume_type: "{{ hitachi_fc | json_query('[*].name')|first }}"
+          backup_driver: cinder.backup.drivers.nfs.NFSBackupDriver
+          backup_mount_point_base: /var/lib/cinder/backup
+          backup_share: {{ backup_store.nfs_server_ip }}:{{ backup_store.nfs_share_path }}
+{% elif taco_storage_backend == "pure_fc" %}
+          enabled_backends: "{{ pure_fc | json_query('[*].name')|join(',') }}"
+          default_volume_type: "{{ pure_fc | json_query('[*].name')|first }}"
+          backup_driver: cinder.backup.drivers.nfs.NFSBackupDriver
+          backup_mount_point_base: /var/lib/cinder/backup
+          backup_share: {{ backup_store.nfs_server_ip }}:{{ backup_store.nfs_share_path }}
+{% endif %}
+          use_default_quota_class: true
+          quota_driver: cinder.quota.DbQuotaDriver
+          quota_consistencygroups: -1
+          quota_backup_gigabytes: -1
+          quota_backups: -1
+          quota_gigabytes: -1
+          quota_groups: -1
+          quota_snapshots: -1
+          quota_volumes: -1
+        oslo_messaging_rabbit:
+          enable_cancel_on_failover: true
+{% if (taco_storage_backend == "unity_fc") or (taco_storage_backend == "hitachi_fc") or (taco_storage_backend == "pure_fc") %}
+          cinder_internal_tenant_project_id: internal_cinder
+          cinder_internal_tenant_user_id: internal_cinder
+{% endif %}
+      backends:
+{% if taco_storage_backend == "ceph" %}
+        rbd1:
+          volume_driver: cinder.volume.drivers.rbd.RBDDriver
+          volume_backend_name: rbd1
+          rbd_ceph_conf: "/etc/ceph/ceph.conf"
+          rbd_flatten_volume_from_snapshot: false
+          rbd_max_clone_depth: 5
+          rbd_store_chunk_size: 8
+          rados_connect_timeout: -1
+          rbd_user: "cinder"
+          rbd_pool: "volumes"
+          rbd_secret_uuid: "582393ff-9a5c-4a2e-ae0d-86ec18c36afc"
+          rbd_exclusive_cinder_pool: true
+{% elif taco_storage_backend == "unity_fc" %}
+{% for n in unity_fc %}
+        {{ n.name }}:
+          storage_protocol: FC
+          san_ip: "{{ n.san_ip }}"
+          san_login: "{{ n.san_login }}"
+          san_password: "{{ n.san_password|b64decode|replace('\n','') }}"
+          volume_driver: cinder.volume.drivers.dell_emc.unity.Driver
+          volume_backend_name: "{{ n.name }}"
+          san_thin_provision: True
+          unity_io_ports: "{{ n.unity_io_ports }}"
+          unity_storage_pool_names: "{{ n.unity_storage_pool_names }}"
+          use_multipath_for_image_xfer: True
+          image_volume_cache_enabled: True
+          image_volume_cache_max_size_gb: 100
+          image_volume_cache_max_count: 50
+{% endfor %}
+{% elif taco_storage_backend == "hitachi_fc" %}
+{% for n in hitachi_fc %}
+        {{ n.name }}:
+          volume_driver: cinder.volume.drivers.hitachi.hbsd.hbsd_fc.HBSDFCDriver
+          volume_backend_name: "{{ n.name }}"
+          suppress_requests_ssl_warnings: True
+          hitachi_storage_id: "{{ n.hitachi_storage_id }}"
+          hitachi_storage_cli: "SIMPLE_REST"
+          hitachi_pool: "{{ n.hitachi_pool }}"
+          hitachi_rest_api_ip: "{{ n.hitachi_rest_api_ip }}"
+          hitachi_rest_user: "{{ n.hitachi_rest_user }}"
+          hitachi_rest_password: "{{ n.hitachi_rest_password|b64decode|replace('\n','') }}"
+          hitachi_target_ports: "{{ n.hitachi_target_ports }}"
+          hitachi_compute_target_ports: "{{ n.hitachi_compute_target_ports }}"
+          hitachi_copy_speed: 15
+          hitachi_group_request: True
+          hitachi_host_mode_options: "2,13,68"
+          hitachi_rest_disable_io_wait: True
+          hitachi_debug_level: debug
+          use_multipath_for_image_xfer: True
+          image_volume_cache_enabled: True
+          image_volume_cache_max_size_gb: 100
+          image_volume_cache_max_count: 50
+{% endfor %}
+{% elif taco_storage_backend == "pure_fc" %}
+{% for n in pure_fc %}
+        {{ n.name }}:
+          volume_driver: cinder.volume.drivers.pure.PureFCDriver
+          volume_backend_name: "{{ n.name }}"
+          san_ip: "{{ n.san_ip }}"
+          pure_api_token: "{{ n.pure_api_token }}"
+          use_multipath_for_image_xfer: True
+          image_volume_cache_enabled: True
+          image_volume_cache_max_size_gb: 100
+          image_volume_cache_max_count: 50
+{% endfor %}
+{% elif taco_storage_backend == "netapp_nfs" %}
+{% for n in netapp_nfs %}
+        {{ n.name }}:
+          volume_driver: cinder.volume.drivers.netapp.common.NetAppDriver
+          netapp_storage_family: ontap_cluster
+          netapp_storage_protocol: nfs
+          netapp_server_hostname: "{{ n.server_ip }}"
+          netapp_transport_type: http
+          netapp_login: "{{ n.login_id }}"
+          netapp_password: "{{ n.password|b64decode|replace('\n','') }}"
+          netapp_vserver: "{{ n.vserver_name }}"
+          volume_backend_name: {{ n.name }}
+          nas_share_path: "{{ n.nas_share_path }}"
+          nas_host: "{{ n.server_ip }}"
+          nas_secure_file_permissions: false
+          nas_secure_file_operation: false
+          nfs_mount_options: nfsvers=4,nolock,lookupcache=pos
+          netapp_copyoffload_tool_path: /usr/local/bin/na_copyoffload_64
+{% endfor %}
+{% endif %}
+    endpoints:
+      oslo_db:
+        auth:
+          admin:
+            username: {{ db_root_user }}
+            password: {{ db_root_password| b64decode }}
+          cinder:
+            username: cinder
+            password: {{ db_cinder_password| b64decode }}
+      oslo_messaging:
+        auth:
+          admin:
+            username: {{ mq_root_user }}
+            password: {{ mq_root_password| b64decode }}
+          cinder:
+            username: cinder
+            password: {{ mq_cinder_password| b64decode }}
+        statefulset: null
+      identity:
+        auth:
+          admin:
+            username: {{ os_root_user }}
+            password: {{ os_root_password| b64decode }}
+          cinder:
+            username: cinder
+            password: {{ os_cinder_password| b64decode }}
+        port:
+          api:
+            default: {{ taco_ingress_port }}
+            public: {{ taco_ingress_port }}
+      image:
+        port:
+          api:
+            public: {{ taco_ingress_port }}
+      volume:
+        path:
+          default: /v2/%(tenant_id)s
+        port:
+          api:
+            public: {{ taco_ingress_port }}
+      volumev2:
+        port:
+          api:
+            public: {{ taco_ingress_port }}
+      volumev3:
+        port:
+          api:
+            public: {{ taco_ingress_port }}
+    manifests:
+      pod_rally_test: false
+{% if taco_storage_backend == "netapp_nfs" %}
+      pvc_image_conversion: true
+{% endif %}
+  source:
+    type: local
+    location: "{{ osh_path }}"
+    subpath: cinder
+  test:
+    enabled: true
+    timeout: 3600
+  dependencies:
+  - helm-toolkit
+---
+schema: armada/Chart/v1
+metadata:
+  schema: metadata/Document/v1
+  name: horizon
+data:
+  chart_name: horizon
+  release: horizon
+  namespace: {{ openstack_namespace }}
+  install:
+    no_hooks: false
+  upgrade:
+    no_hooks: false
+    pre:
+      delete:
+      - type: job
+        labels:
+          application: horizon
+          component: db-init
+      - type: job
+        labels:
+          application: horizon
+          component: db-sync
+  values:
+    images:
+      pull_policy: {{ taco_img_pull_policy }}
+      tags:
+        db_init: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        db_drop: {{ container_registry_url }}/docker.io/openstackhelm/heat:train-ubuntu_bionic
+        horizon_db_sync: {{ container_registry_url }}/docker.io/openstackhelm/horizon:train-ubuntu_bionic
+        horizon: {{ container_registry_url }}/docker.io/openstackhelm/horizon:train-ubuntu_bionic-apache2.4.46
+        dep_check: {{ container_registry_url }}/quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+        test: {{ container_registry_url }}/docker.io/openstackhelm/osh-selenium:latest-ubuntu_bionic
+    pod:
+      replicas:
+        server: {{ taco_replicas }}
+    network:
+      node_port:
+        enabled: true
+        port: 31000
+      api:
+        ingress:
+          annotations:
+            nginx.ingress.kubernetes.io/proxy-body-size: 102400M
+    endpoints:
+      identity:
+        name: keystone
+        auth:
+          admin:
+            username: {{ os_root_user }}
+            password: {{ os_root_password| b64decode }}
+        port:
+          api:
+            default: {{ taco_ingress_port }}
+            public: {{ taco_ingress_port }}
+      dashboard:
+        port:
+          web:
+            public: {{ taco_ingress_port }}
+      oslo_db:
+        auth:
+          admin:
+            username: {{ db_root_user }}
+            password: {{ db_root_password| b64decode }}
+          horizon:
+            username: horizon
+            password: {{ db_horizon_password| b64decode }}
+    conf:
+      db_acl:
+        enabled: true
+    manifests:
+      pod_rally_test: false
+  source:
+    type: local
+    location: "{{ osh_path }}"
+    subpath: horizon
+  test:
+    enabled: true
+    timeout: 3600
+  dependencies:
+  - helm-toolkit
+---
+schema: armada/ChartGroup/v1
+metadata:
+  schema: metadata/Document/v1
+  name: openstack-infra
+data:
+  description: "Openstack Infrastructures"
+  sequenced: False
+  chart_group:
+{% if taco_storage_backend == "ceph" %}
+    - ceph-provisioners
+{% elif taco_storage_backend == "netapp_nfs" %}
+    - nfs-client-provisioner
+{% endif %}
+    - ingress
+    - mariadb
+    - rabbitmq
+    - memcached
+---
+schema: armada/ChartGroup/v1
+metadata:
+  schema: metadata/Document/v1
+  name: openstack
+data:
+  description: "Openstack Services"
+  sequenced: False
+  chart_group:
+    - keystone
+    - glance
+    - placement
+{% if neutron_ml2_plugin == "ovs" %}
+    - openvswitch
+{% endif %}
+    - neutron
+    - libvirt
+    - nova
+    - cinder
+    - horizon
+---
+schema: armada/Manifest/v1
+metadata:
+  schema: metadata/Document/v1
+  name: taco-train
+data:
+  release_prefix: taco-train
+  chart_groups:
+    - openstack-infra
+    - openstack

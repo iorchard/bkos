@@ -1,0 +1,82 @@
+---
+- name: copy hosts to /etc/hosts on bastion
+  hosts: all
+  gather_facts: true
+
+  vars:
+    home: "{{ ansible_env.HOME }}"
+
+  tasks:
+  - name: check ssh port is opened on bastion
+    ansible.builtin.wait_for:
+      path: "/tmp/you_are_good_to_connect"
+      state: present
+      sleep: 10
+      timeout: 1200
+
+  - name: copy hosts file over to bastion
+    ansible.builtin.copy:
+      src: "hosts"
+      dest: "/etc/hosts"
+    become: true
+
+  - name: download taco tarball from cicd mirror
+    ansible.builtin.get_url:
+      url: "{{ taco_tarball_url }}"
+      dest: "{{ home }}/taco.tar.gz"
+      mode: '0644'
+
+  - name: untar taco tarball
+    ansible.builtin.unarchive:
+      src: "{{ home }}/taco.tar.gz"
+      dest: "{{ home }}"
+      remote_src: true
+
+  - name: delete taco tarball
+    ansible.builtin.file:
+      path: "{{ home }}/taco.tar.gz"
+      state: absent
+
+  - name: templating hosts.ini
+    ansible.builtin.template:
+      src: "hosts.ini.j2"
+      dest: "files/hosts.ini"
+    delegate_to: localhost
+
+  - name: copy customized ansible files
+    ansible.builtin.copy:
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+    loop:
+      - {dest: "{{ home }}/taco/roles/k8s/kubectl/tasks/main.yml", src: "kubectl_tasks_main.yml"}
+      - {dest: "{{ home }}/taco/inventory/cloudpc/hosts.ini", src: "hosts.ini"}
+      - {dest: "{{ home }}/taco/inventory/cloudpc/extra-vars.yml", src: "extra-vars.yml"}
+      - {dest: "{{ home }}/taco/inventory/cloudpc/openstack-manifest.yaml.j2", src: "openstack-manifest.yaml.j2"}
+
+  - name: create a directory to prevent error in conf-repo in taco play
+    ansible.builtin.file:
+      path: /var/www/yum-repo/ceph-nautilus
+      state: directory
+      mode: '0755'
+    become: true
+
+  - name: remove python-requests package
+    ansible.builtin.package:
+      name: python-requests
+      state: absent
+    become: true
+
+  - name: install python requirements packages
+    ansible.builtin.command: >-
+      python -m pip install -r requirements.txt
+    args:
+      chdir: "{{ home }}/taco"
+    become: true
+
+  - name: copy /etc/hosts from bastion to cluster nodes
+    ansible.builtin.command: >-
+      ansible -b -i inventory/cloudpc/hosts.ini -m copy \
+        -a 'src=/etc/hosts dest=/etc/hosts' all
+    args:
+      chdir: "{{ home }}/taco"
+...

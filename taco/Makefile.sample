@@ -1,0 +1,67 @@
+config:
+	pulumi config set 'openstack:authUrl' 'http://192.168.20.50:5000/v3'
+	pulumi config set 'openstack:projectDomainName' 'default'
+	pulumi config set 'openstack:userDomainName' 'default'
+	pulumi config set 'openstack:userName' 'admin'
+	pulumi config set --secret 'openstack:password' '<openstack_password>'
+	pulumi config set 'openstack:tenantName' 'admin'
+
+	pulumi config set 'provider_network_name' '<provider_network_name>'
+	pulumi config set 'cluster_name' 'jijisa-taco'
+	pulumi config set 'wait_sleep' 360
+	pulumi config set 'taco_tarball_url' 'http://192.168.151.50:8090/v2/vendor/taco.tar.gz'
+
+	pulumi config set --path 'repo.pip' '192.168.151.50:8088'
+	pulumi config set --path 'repo.pkg' '192.168.151.50:8090'
+	pulumi config set --path 'network[0].name' 'svc'
+	pulumi config set --path 'network[0].cidr' '10.11.120.0/24'
+	pulumi config set --path 'network[1].name' 'mgmt'
+	pulumi config set --path 'network[1].cidr' '10.11.121.0/24'
+	pulumi config set --path 'network[2].name' 'provider'
+	pulumi config set --path 'network[2].cidr' '10.11.122.0/24'
+	pulumi config set --path 'network[3].name' 'overlay'
+	pulumi config set --path 'network[3].cidr' '10.11.123.0/24'
+	pulumi config set --path 'network[4].name' 'storage'
+	pulumi config set --path 'network[4].cidr' '10.11.124.0/24'
+	pulumi config set --path 'flavor_controller.vcpus' 16
+	pulumi config set --path 'flavor_controller.ram' 32
+	pulumi config set --path 'flavor_controller.disk' 100
+	pulumi config set --path 'flavor_worker.vcpus' 16
+	pulumi config set --path 'flavor_worker.ram' 16
+	pulumi config set --path 'flavor_worker.disk' 50
+	pulumi config set --path 'flavor_storage.vcpus' 4
+	pulumi config set --path 'flavor_storage.ram' 8
+	pulumi config set --path 'flavor_storage.disk' 50
+	pulumi config set --path 'flavor_bastion.vcpus' 4
+	pulumi config set --path 'flavor_bastion.ram' 4
+	pulumi config set --path 'flavor_bastion.disk' 100
+	pulumi config set --path 'instance[0].role' 'controller'
+	pulumi config set --path 'instance[0].num' 1
+	pulumi config set --path 'instance[1].role' 'worker'
+	pulumi config set --path 'instance[1].num' 2
+	pulumi config set --path 'instance[2].role' 'storage'
+	pulumi config set --path 'instance[2].num' 2
+	pulumi config set --path 'instance[2].osdnum' 2
+	pulumi config set --path 'instance[2].osdsize' 100
+
+up: 
+	pulumi up --yes --skip-preview
+
+down: 
+	pulumi down --yes
+
+refresh:
+	pulumi refresh --yes
+
+typehint:
+	mypy *.py
+
+lint:
+	pylint *.py
+
+tidy:
+	black -l 79 *.py
+
+check: lint typehint
+
+.PHONY: typehint lint tidy check up down refresh

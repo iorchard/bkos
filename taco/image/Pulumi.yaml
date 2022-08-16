@@ -1,0 +1,4 @@
+name: taco.image
+runtime:
+  name: python
+description: A TACO CentOS7 VM Image Upload Pulumi Program

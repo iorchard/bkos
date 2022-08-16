@@ -1,0 +1,29 @@
+config:
+	pulumi config set 'openstack:authUrl' 'http://192.168.20.50:5000/v3'
+	pulumi config set 'openstack:projectDomainName' 'default'
+	pulumi config set 'openstack:userDomainName' 'default'
+	pulumi config set 'openstack:userName' 'admin'
+	pulumi config set --secret 'openstack:password' '<password>'
+	pulumi config set 'openstack:tenantName' 'admin'
+
+up: check
+	pulumi up --yes --skip-preview
+
+down: check
+	pulumi down --yes
+
+refresh:
+	pulumi refresh --yes --skip-preview
+
+typehint:
+	mypy *.py
+
+lint:
+	pylint *.py
+
+tidy:
+	black -l 79 *.py
+
+check: lint typehint
+
+.PHONY: typehint lint tidy check up down refresh

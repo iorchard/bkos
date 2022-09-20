@@ -1,7 +1,6 @@
 """A TACO2 Provisioning Pulumi Program"""
 # pylint: disable=C0103
 import os
-import time
 
 import pulumi
 import pulumi_openstack as openstack
@@ -135,7 +134,7 @@ rc = [
     },
     {
         "outfile": f".{cluster_name}/memberrc",
-        "username": f"{cluster_name}member",
+        "username": f"{cluster_name}_member",
         "pwfile": ".memberpw",
         "password": s_memberpw,
     },
@@ -195,12 +194,18 @@ networks = []
 subnets = []
 i = 0
 o_network = config.require_object("network")
+port_security_enabled = False
+enable_dhcp = True
+
 for n in o_network:
     print(f"name: {n['name']}, cidr: {n['cidr']}")
+    if n['name'] == 'provider':
+        enable_dhcp = False
     net = openstack.networking.Network(
         f"net-{i}",
         name=f"{cluster_name}-{n['name']}-net",
         admin_state_up=True,
+        port_security_enabled=port_security_enabled,
         opts=pulumi.ResourceOptions(provider=padmin),
     )
     networks.append(net)
@@ -208,6 +213,7 @@ for n in o_network:
         f"subnet-{i}",
         name=f"{cluster_name}-{n['name']}-subnet",
         ip_version=4,
+        enable_dhcp=enable_dhcp,
         dns_nameservers=["8.8.8.8", "8.8.4.4"],
         cidr=n["cidr"],
         network_id=net.id,
@@ -223,52 +229,52 @@ for n in o_network:
     i += 1
 
 # secgroup
-sg = openstack.networking.SecGroup(
-    "sg",
-    name=f"{cluster_name}-sg",
-    description=f"Security Group for {cluster_name}",
-    opts=pulumi.ResourceOptions(provider=padmin),
-)
-sg_icmp = openstack.networking.SecGroupRule(
-    "sg_icmp",
-    direction="ingress",
-    ethertype="IPv4",
-    protocol="icmp",
-    remote_ip_prefix="0.0.0.0/0",
-    description="Allow incoming icmp",
-    security_group_id=sg.id,
-    opts=pulumi.ResourceOptions(provider=padmin),
-)
-sg_tcp = openstack.networking.SecGroupRule(
-    "sg_tcp",
-    direction="ingress",
-    ethertype="IPv4",
-    protocol="tcp",
-    remote_ip_prefix="0.0.0.0/0",
-    description="Allow incoming tcp",
-    security_group_id=sg.id,
-    opts=pulumi.ResourceOptions(provider=padmin),
-)
-sg_udp = openstack.networking.SecGroupRule(
-    "sg_udp",
-    direction="ingress",
-    ethertype="IPv4",
-    protocol="udp",
-    remote_ip_prefix="0.0.0.0/0",
-    description="Allow incoming udp",
-    security_group_id=sg.id,
-    opts=pulumi.ResourceOptions(provider=padmin),
-)
-sg_ipinip = openstack.networking.SecGroupRule(
-    "sg_ipinip",
-    direction="ingress",
-    ethertype="IPv4",
-    protocol="4",
-    remote_ip_prefix="0.0.0.0/0",
-    description="Allow incoming ipinip protocol",
-    security_group_id=sg.id,
-    opts=pulumi.ResourceOptions(provider=padmin),
-)
+#sg = openstack.networking.SecGroup(
+#    "sg",
+#    name=f"{cluster_name}-sg",
+#    description=f"Security Group for {cluster_name}",
+#    opts=pulumi.ResourceOptions(provider=padmin),
+#)
+#sg_icmp = openstack.networking.SecGroupRule(
+#    "sg_icmp",
+#    direction="ingress",
+#    ethertype="IPv4",
+#    protocol="icmp",
+#    remote_ip_prefix="0.0.0.0/0",
+#    description="Allow incoming icmp",
+#    security_group_id=sg.id,
+#    opts=pulumi.ResourceOptions(provider=padmin),
+#)
+#sg_tcp = openstack.networking.SecGroupRule(
+#    "sg_tcp",
+#    direction="ingress",
+#    ethertype="IPv4",
+#    protocol="tcp",
+#    remote_ip_prefix="0.0.0.0/0",
+#    description="Allow incoming tcp",
+#    security_group_id=sg.id,
+#    opts=pulumi.ResourceOptions(provider=padmin),
+#)
+#sg_udp = openstack.networking.SecGroupRule(
+#    "sg_udp",
+#    direction="ingress",
+#    ethertype="IPv4",
+#    protocol="udp",
+#    remote_ip_prefix="0.0.0.0/0",
+#    description="Allow incoming udp",
+#    security_group_id=sg.id,
+#    opts=pulumi.ResourceOptions(provider=padmin),
+#)
+#sg_ipinip = openstack.networking.SecGroupRule(
+#    "sg_ipinip",
+#    direction="ingress",
+#    ethertype="IPv4",
+#    protocol="4",
+#    remote_ip_prefix="0.0.0.0/0",
+#    description="Allow incoming ipinip protocol",
+#    security_group_id=sg.id,
+#    opts=pulumi.ResourceOptions(provider=padmin),
+#)
 
 image = openstack.images.get_image(name="centos7")
 
@@ -332,7 +338,6 @@ for o in config.require_object("instance"):
                 name=f"{cluster_name}-{o['role']}-{i_ci}",
                 flavor_id=controller_flavor.id,
                 key_pair=keypair.id,
-                security_groups=[sg.name],
                 user_data=userdata,
                 block_devices=[
                     openstack.compute.InstanceBlockDeviceArgs(
@@ -364,7 +369,6 @@ for o in config.require_object("instance"):
                 name=f"{cluster_name}-{o['role']}-{i_wi}",
                 flavor_id=worker_flavor.id,
                 key_pair=keypair.id,
-                security_groups=[sg.name],
                 user_data=userdata,
                 block_devices=[
                     openstack.compute.InstanceBlockDeviceArgs(
@@ -396,7 +400,6 @@ for o in config.require_object("instance"):
                 name=f"{cluster_name}-{o['role']}-{i_si}",
                 flavor_id=storage_flavor.id,
                 key_pair=keypair.id,
-                security_groups=[sg.name],
                 user_data=userdata,
                 block_devices=[
                     openstack.compute.InstanceBlockDeviceArgs(
@@ -441,7 +444,6 @@ bastion_instance = openstack.compute.Instance(
     name=f"{cluster_name}-bastion",
     flavor_id=bastion_flavor.id,
     key_pair=keypair.id,
-    security_groups=[sg.name],
     user_data=userdata,
     block_devices=[
         openstack.compute.InstanceBlockDeviceArgs(
@@ -456,7 +458,7 @@ bastion_instance = openstack.compute.Instance(
         openstack.compute.InstanceNetworkArgs(name=f"{cluster_name}-mgmt-net"),
         openstack.compute.InstanceNetworkArgs(
             name=f"{cluster_name}-storage-net"
-        ),
+        )
     ],
     opts=pulumi.ResourceOptions(
         provider=padmin,
@@ -503,7 +505,7 @@ wait_sleep = command.local.Command(
         depends_on=[bastion_fip_assoc, bastion_instance]
     ),
 )
-## run an ansible playbook.
+# run an ansible playbook.
 preplay = command.local.Command(
     "preplay",
     create=f"""\

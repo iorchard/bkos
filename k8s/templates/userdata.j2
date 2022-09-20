@@ -1,0 +1,81 @@
+#cloud-config
+timezone: Asia/Seoul
+locale: ko_KR.UTF-8
+groups:
+  - clex
+users:
+  - default
+  - name: clex
+    gecos: CloudX user
+    primary_group: clex
+    groups: wheel
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    ssh_authorized_keys: 
+      - {{ public_key }}
+bootcmd:
+  - DEBIAN_FRONTEND=noninteractive apt-get -q=2 update
+  - DEBIAN_FRONTEND=noninteractive apt-get -q=2 install gnupg
+apt:
+  preseve_sources_list: false
+  primary:
+  - arches:
+    - amd64
+    uri: 'http://ftp.kr.debian.org/debian'
+  security:
+  - arches:
+    - amd64
+    uri: 'http://security.debian.org/debian-security'
+  sources_list: |
+    deb $PRIMARY $RELEASE main
+    deb $PRIMARY $RELEASE-updates main
+    deb $SECURITY $RELEASE-security main
+  sources:
+    openstack:
+      keyid: '0FB8E8DD19498FEC90B25E5E56056AB2FEE4EECB'
+      keyserver: 'http://osbpo.debian.net/osbpo/dists/pubkey.gpg'
+      source: 'deb http://osbpo.debian.net/osbpo $RELEASE-{{ openstack_release }}-backports main'
+      filename: openstack.list
+    openstack-nochange:
+      source: 'deb http://osbpo.debian.net/osbpo $RELEASE-{{ openstack_release }}-backports-nochange main'
+      filename: openstack.list
+packages:
+  - python3-openstackclient
+  - python3-barbicanclient
+  - python3-heatclient
+  - python3-magnumclient
+  - python3-octaviaclient
+  - python3-designateclient
+  - git
+package_update: true
+write_files:
+- path: /home/clex/.ssh/id_rsa
+  content: |
+    {{ private_key | indent(width=4) }}
+  permissions: '0400'
+- path: /home/clex/.adminrc
+  content: |
+    {{ adminrc | indent(width=4) }}
+  permissions: '0600'
+- path: /home/clex/.memberrc
+  content: |
+    {{ memberrc | indent(width=4) }}
+  permissions: '0600'
+- path: /home/clex/post_install.yml
+  content: |
+    {{ post_install | indent(width=4) }}
+  permissions: '0400'
+- path: /home/clex/coredns_configmap.yml
+  content: |
+    {{ coredns_configmap | indent(width=4) }}
+  permissions: '0644'
+- path: /home/clex/coredns_append.yml
+  content: |
+    {{ coredns_append | indent(width=4) }}
+  permissions: '0644'
+- path: /home/clex/post_run.sh
+  content: |
+    {{ post_run | indent(width=4) }}
+  permissions: '0755'
+runcmd:
+  - [ /home/clex/post_run.sh ]

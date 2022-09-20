@@ -1,0 +1,70 @@
+SHELL := /bin/bash
+STACK := pulumi stack select bkos.k8s.dev
+
+config:
+	$(STACK)
+	pulumi config set 'openstack:authUrl' 'http://192.168.20.50:5000/v3'
+	pulumi config set 'openstack:projectDomainName' 'default'
+	pulumi config set 'openstack:userDomainName' 'default'
+	pulumi config set 'openstack:userName' 'admin'
+	pulumi config set --secret 'openstack:password' 
+	pulumi config set 'openstack:tenantName' 'admin'
+
+	pulumi config set 'provider_network_name' 'public-net'
+	pulumi config set 'cluster_name' 'jijisa-k8s'
+	pulumi config set 'openstack_release' 'yoga'
+	pulumi config set 'dns_zone_name' 'jijisa-k8s.local.'
+
+	pulumi config set --path 'flavor_master.vcpus' 4
+	pulumi config set --path 'flavor_master.ram' 4
+	pulumi config set --path 'flavor_master.disk' 50
+	pulumi config set --path 'flavor_node.vcpus' 4
+	pulumi config set --path 'flavor_node.ram' 4
+	pulumi config set --path 'flavor_node.disk' 50
+	pulumi config set --path 'flavor_bastion.vcpus' 2
+	pulumi config set --path 'flavor_bastion.ram' 2
+	pulumi config set --path 'flavor_bastion.disk' 80
+
+	pulumi config set --path 'k8s_template.dns_nameserver' '192.168.20.50'
+	pulumi config set --path 'k8s_template.network_driver' 'calico'
+	pulumi config set --path 'k8s_template.volume_driver' 'cinder'
+	pulumi config set --path 'k8s_template.master_lb_enabled' false
+	pulumi config set --path 'k8s_template.mlb_fip_enabled' false
+	pulumi config set --path 'k8s_template.floating_ip_enabled' false
+	pulumi config set --path 'k8s_template.boot_volume_size' 50
+	pulumi config set --path 'k8s_template.boot_volume_type' 'ceph'
+	pulumi config set --path 'k8s_template.etcd_volume_size' 10
+	pulumi config set --path 'k8s_template.etcd_volume_type' 'ceph'
+	pulumi config set --path 'k8s_template.cinder_csi_enabled' 'true'
+	pulumi config set --path 'k8s_template.k8s_ver' '1.21.11'
+	pulumi config set --path 'k8s_template.other_ver' '1.21.0'
+	pulumi config set --path 'k8s_template.helm_ver' '3.9.4'
+	pulumi config set --path 'k8s_template.az' 'nova'
+
+	pulumi config set --path 'k8s.master_count' 1
+	pulumi config set --path 'k8s.node_count' 1
+
+up: check
+	$(STACK)
+	pulumi up --yes --skip-preview
+
+down: 
+	$(STACK)
+	pulumi down --yes
+
+refresh:
+	$(STACK)
+	pulumi refresh --yes
+
+typehint:
+	mypy *.py
+
+lint:
+	PYTHONPATH=. pylint *.py
+
+tidy:
+	black -l 79 *.py
+
+check: lint typehint
+
+.PHONY: typehint lint tidy check up down refresh

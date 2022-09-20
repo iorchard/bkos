@@ -1,0 +1,28 @@
+#!/bin/sh -x
+
+USER="clex"
+TDIR="/home/${USER}"
+
+curl -Lo /usr/bin/kubectl https://storage.googleapis.com/kubernetes-release/release/v{{ k8s_ver }}/bin/linux/amd64/kubectl
+chmod 0755 /usr/bin/kubectl
+
+curl -Lo /tmp/helm.tar.gz https://get.helm.sh/helm-v{{ helm_ver }}-linux-amd64.tar.gz
+tar -C /tmp -xzf /tmp/helm.tar.gz
+cp /tmp/linux-amd64/helm /usr/bin/helm
+
+echo 'source .memberrc' >> $TDIR/.bash_profile
+
+mkdir $TDIR/.kube
+. $TDIR/.adminrc
+openstack coe cluster config --dir=$TDIR/.kube {{ cluster_name }}
+chmod 0400 $TDIR/.kube/config
+
+chown -R ${USER}:${USER} $TDIR
+
+kubectl --kubeconfig=$TDIR/.kube/config apply -f $TDIR/post_install.yml
+
+kubectl --kubeconfig=$TDIR/.kube/config get cm coredns -n kube-system -o jsonpath='{.data.Corefile}' | sed 's/^/    /' >> $TDIR/coredns_configmap.yml
+if ! grep -q {{ cluster_name }} $TDIR/coredns_configmap.yml; then
+  sed 's/^/    /' $TDIR/coredns_append >> $TDIR/coredns_configmap.yml
+fi
+kubectl --kubeconfig=$TDIR/.kube/config apply -f $TDIR/coredns_configmap.yml

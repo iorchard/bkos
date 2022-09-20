@@ -22,7 +22,7 @@ bootcmd:
   - sed -i 's/enforcing/disabled/g' /etc/selinux/config
   - setenforce 0
   - cloud-init-per once gw echo 'GATEWAYDEV=eth0' >> /etc/sysconfig/network
-  - sed -i 's/^BOOTPROTO.*$//' /etc/sysconfig/network-scripts/ifcfg-eth2 || true
+  - sed -i 's/^BOOTPROTO.*$/BOOTPROTO=none/' /etc/sysconfig/network-scripts/ifcfg-eth2 || true
 write_files:
   - path: /root/.ssh/id_rsa
     content: |
@@ -38,6 +38,7 @@ runcmd:
   - mv /root/.ssh/id_rsa* /home/clex/.ssh/
   - chown -R clex:clex /home/clex
   - touch /tmp/you_are_good_to_connect
+  - systemctl disable cloud-init
 power_state:
   delay: now
   mode: reboot

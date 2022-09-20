@@ -24,14 +24,10 @@ kube-node
 
 # Ceph cluster
 [mons]
-{% for d in hosts_ini %}
-{% if 'storage' in d['name'] and loop.index == 1 %}{{ d['name'] }}{{'\n'}}{% endif %}
-{% endfor +%}
+{{ cluster_name }}-storage-1
 
 [mgrs]
-{% for d in hosts_ini %}
-{% if 'storage' in d['name'] and loop.index == 1 %}{{ d['name'] }}{{'\n'}}{% endif %}
-{% endfor +%}
+{{ cluster_name }}-storage-1
 
 [osds]
 {% for d in hosts_ini %}

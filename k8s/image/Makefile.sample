@@ -1,0 +1,40 @@
+STACK := pulumi stack select bkos.k8s.image.dev
+
+config:
+	$(STACK)
+	pulumi config set 'openstack:authUrl' 'http://192.168.20.10:5000/v3'
+	pulumi config set 'openstack:projectDomainName' 'default'
+	pulumi config set 'openstack:userDomainName' 'default'
+	pulumi config set 'openstack:userName' 'admin'
+	pulumi config set --secret 'openstack:password' 'adminpass'
+	pulumi config set 'openstack:tenantName' 'admin'
+
+	pulumi config set --path 'image.url' 'https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/33.20210426.3.0/x86_64'
+	pulumi config set --path 'image.file' 'fedora-coreos-33.20210426.3.0-openstack.x86_64.qcow2'
+	pulumi config set --path 'image.name' 'fcos'
+	pulumi config set --path 'image.properties.os_version' '33.20210426.3.0'
+
+up: check
+	$(STACK)
+	pulumi up --yes --skip-preview
+
+down: check
+	$(STACK)
+	pulumi down --yes
+
+refresh:
+	$(STACK)
+	pulumi refresh --yes --skip-preview
+
+typehint:
+	mypy *.py
+
+lint:
+	pylint *.py
+
+tidy:
+	black -l 79 *.py
+
+check: lint typehint
+
+.PHONY: typehint lint tidy check up down refresh

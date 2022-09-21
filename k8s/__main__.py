@@ -161,7 +161,7 @@ for r in rc:
     with open(file=r["outfile"], mode="r", encoding="utf-8") as f:
         if r["outfile"] == f".{cluster_name}/adminrc":
             adminrc = f.read()
-        elif r["outfile"] == f".{cluster_name}/adminrc":
+        elif r["outfile"] == f".{cluster_name}/memberrc":
             memberrc = f.read()
 
 # create project admin provider
@@ -177,7 +177,7 @@ padmin = openstack.Provider(
 
 keypair = openstack.compute.keypair.Keypair(
     "keypair",
-    name=f"{cluster_name}-key",
+    name=f"{cluster_name}_key",
     public_key=public_key,
     opts=pulumi.ResourceOptions(provider=padmin),
 )
@@ -231,7 +231,7 @@ with open(file="files/post_install.yml", mode="w", encoding="utf-8") as f:
 with open(file="files/coredns_configmap.yml", mode="r", encoding="utf-8") as f:
     coredns_configmap = f.read()
 
-tmpl = env.get_template("coredns_append.j2")
+tmpl = env.get_template("coredns_append.yml.j2")
 coredns_append = tmpl.render({
     "dns_zone_name": config.get('dns_zone_name'),
     "dns_nameserver": o_k8s_tmpl.get('dns_nameserver'),
@@ -314,43 +314,86 @@ cluster = openstack.containerinfra.Cluster(
     opts=pulumi.ResourceOptions(provider=padmin),
 )
 
-# create bastion host
-#bastion_instance = openstack.compute.Instance(
-#    "bastion",
-#    name=f"{cluster_name}-bastion",
-#    flavor_id=bastion_flavor.id,
-#    key_pair=keypair.id,
-#    user_data=userdata,
-#    block_devices=[
-#        openstack.compute.InstanceBlockDeviceArgs(
-#            source_type="image",
-#            destination_type="volume",
-#            delete_on_termination=True,
-#            volume_size=c_flavor_bastion.get("disk"),
-#            uuid=image.id,
-#        )
-#    ],
-#    networks=[
-#        openstack.compute.InstanceNetworkArgs(name=f"{cluster_name}-mgmt-net"),
-#        openstack.compute.InstanceNetworkArgs(
-#            name=f"{cluster_name}-storage-net"
-#        )
-#    ],
-#    opts=pulumi.ResourceOptions(
-#        provider=padmin,
-#        depends_on=[va],
-#        custom_timeouts=pulumi.CustomTimeouts(create="10m"),
-#    ),
-#)
-#bastion_fip = openstack.networking.FloatingIp(
-#    "bastion_fip", pool=config.get("provider_network_name")
-#)
-#bastion_fip_assoc = openstack.compute.FloatingIpAssociate(
-#    "bastion_fip_assoc",
-#    fixed_ip=bastion_instance.networks[0].fixed_ip_v4,
-#    floating_ip=bastion_fip.address,
-#    instance_id=bastion_instance.id,
-#)
+## create bastion
+# get debian image
+bastion_image = openstack.images.get_image(name="debian")
+# create secgroup for bastion
+sg = openstack.networking.SecGroup(
+    "sg",
+    name=f"{cluster_name}-bastion-sg",
+    description=f"Security Group for {cluster_name}-bastion",
+    opts=pulumi.ResourceOptions(provider=padmin),
+)
+sg_icmp = openstack.networking.SecGroupRule(
+    "sg_icmp",
+    direction="ingress",
+    ethertype="IPv4",
+    protocol="icmp",
+    remote_ip_prefix="0.0.0.0/0",
+    description="Allow incoming icmp",
+    security_group_id=sg.id,
+    opts=pulumi.ResourceOptions(provider=padmin),
+)
+sg_tcp = openstack.networking.SecGroupRule(
+    "sg_tcp",
+    direction="ingress",
+    ethertype="IPv4",
+    protocol="tcp",
+    remote_ip_prefix="0.0.0.0/0",
+    description="Allow incoming tcp",
+    security_group_id=sg.id,
+    opts=pulumi.ResourceOptions(provider=padmin),
+)
+sg_udp = openstack.networking.SecGroupRule(
+    "sg_udp",
+    direction="ingress",
+    ethertype="IPv4",
+    protocol="udp",
+    remote_ip_prefix="0.0.0.0/0",
+    description="Allow incoming udp",
+    security_group_id=sg.id,
+    opts=pulumi.ResourceOptions(provider=padmin),
+)
+
+bastion_instance = openstack.compute.Instance(
+    "bastion",
+    name=f"{cluster_name}-bastion",
+    flavor_id=bastion_flavor.id,
+    key_pair=keypair.id,
+    security_groups=[sg.name],
+    user_data=userdata,
+    block_devices=[
+        openstack.compute.InstanceBlockDeviceArgs(
+            source_type="image",
+            destination_type="volume",
+            delete_on_termination=True,
+            volume_size=o_flavor_bastion.get("disk"),
+            uuid=bastion_image.id,
+        )
+    ],
+    networks=[
+        openstack.compute.InstanceNetworkArgs(name=f"{cluster_name}"),
+    ],
+    opts=pulumi.ResourceOptions(
+        provider=padmin,
+        depends_on=[cluster],
+    ),
+)
+bastion_fip = openstack.networking.FloatingIp(
+    "bastion_fip", pool=config.get("provider_network_name")
+)
+bastion_fip_assoc = openstack.compute.FloatingIpAssociate(
+    "bastion_fip_assoc",
+    fixed_ip=bastion_instance.networks[0].fixed_ip_v4,
+    floating_ip=bastion_fip.address,
+    instance_id=bastion_instance.id,
+)
 
 pulumi.export("cluster_name", cluster_name)
-#pulumi.export("bastion_fip", bastion_fip.address)
+pulumi.export("kubeconfig", cluster.kubeconfig)
+pulumi.export("api_address", cluster.api_address)
+pulumi.export("coe_version", cluster.coe_version)
+pulumi.export("container_version", cluster.container_version)
+pulumi.export("master_addresses", cluster.master_addresses)
+pulumi.export("node_addresses", cluster.node_addresses)
+pulumi.export("bastion_fip", bastion_fip.address)

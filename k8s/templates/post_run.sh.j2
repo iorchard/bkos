@@ -23,6 +23,8 @@ kubectl --kubeconfig=$TDIR/.kube/config apply -f $TDIR/post_install.yml
 
 kubectl --kubeconfig=$TDIR/.kube/config get cm coredns -n kube-system -o jsonpath='{.data.Corefile}' | sed 's/^/    /' >> $TDIR/coredns_configmap.yml
 if ! grep -q {{ cluster_name }} $TDIR/coredns_configmap.yml; then
-  sed 's/^/    /' $TDIR/coredns_append >> $TDIR/coredns_configmap.yml
+  sed 's/^/    /' $TDIR/coredns_append.yml >> $TDIR/coredns_configmap.yml
 fi
 kubectl --kubeconfig=$TDIR/.kube/config apply -f $TDIR/coredns_configmap.yml
+
+rm -f $TDIR/.adminrc

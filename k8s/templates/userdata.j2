@@ -8,14 +8,16 @@ users:
   - name: clex
     gecos: CloudX user
     primary_group: clex
-    groups: wheel
+    groups: sudo
     sudo: ALL=(ALL) NOPASSWD:ALL
     lock_passwd: true
+    shell: /bin/bash
     ssh_authorized_keys: 
       - {{ public_key }}
 bootcmd:
   - DEBIAN_FRONTEND=noninteractive apt-get -q=2 update
   - DEBIAN_FRONTEND=noninteractive apt-get -q=2 install gnupg
+  - echo "ko_KR.UTF-8 UTF-8" > /etc/locale.gen
 apt:
   preseve_sources_list: false
   primary:

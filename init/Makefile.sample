@@ -1,0 +1,63 @@
+SHELL := /bin/bash
+STACK := bkos.dev.init
+# KeepAlived Service VIP
+ENDPOINT_IP := 192.168.20.10
+
+stack:
+	pulumi stack select $(STACK) || pulumi stack init $(STACK)
+
+config:
+	pulumi stack select $(STACK)
+	pulumi config set --secret 'openstack:password'
+
+	pulumi config set 'dns_nameserver' '192.168.20.10'
+	pulumi config set --path 'selfservice.name' 'private'
+	pulumi config set --path 'selfservice.cidr' '172.30.1.0/24'
+	pulumi config set --path 'provider.name' 'public'
+	pulumi config set --path 'provider.cidr' '192.168.22.0/24'
+	pulumi config set --path 'provider.pool_start' '192.168.22.10/24'
+	pulumi config set --path 'provider.pool_end' '192.168.22.19/24'
+
+	pulumi config set --path 'image.url' \
+		'http://download.cirros-cloud.net'
+	pulumi config set --path 'image.name' 'cirros'
+
+#########################################################
+# Do Not Edit Below!!!                                  #
+#########################################################
+
+	pulumi config set 'openstack:authUrl' 'http://$(ENDPOINT_IP):5000/v3'
+	pulumi config set 'openstack:projectDomainName' 'default'
+	pulumi config set 'openstack:userDomainName' 'default'
+	pulumi config set 'openstack:userName' 'admin'
+	pulumi config set 'openstack:tenantName' 'admin'
+
+	pulumi config set --path 'flavor.name' 'cirros'
+	pulumi config set --path 'flavor.vcpus' 1
+	pulumi config set --path 'flavor.ram' 0.5
+	pulumi config set --path 'flavor.disk' 1
+
+up: check
+	$(STACK)
+	pulumi up --yes --skip-preview
+
+down: 
+	$(STACK)
+	pulumi down --yes
+
+refresh:
+	$(STACK)
+	pulumi refresh --yes
+
+typehint:
+	mypy *.py
+
+lint:
+	PYTHONPATH=. pylint *.py
+
+tidy:
+	black -l 79 *.py
+
+check: lint typehint
+
+.PHONY: stack typehint lint tidy check up down refresh
